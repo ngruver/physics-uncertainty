@@ -1,0 +1,15 @@
+name: phy-unc
+channels:
+  - conda-forge
+dependencies:
+  - python=3.8
+  - pip
+  - pip:
+    - wandb
+    - altair
+    - jupyterlab
+    - networkx
+    - numpy
+    - scipy
+    - torch
+    - torchdiffeq
