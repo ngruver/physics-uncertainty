@@ -53,7 +53,7 @@ class HNN(nn.Module, metaclass=Named):
             Linear(chs[-1], self.q_ndim * self.q_ndim, zero_bias=True, orthogonal_init=True),
             Reshape(-1, self.q_ndim, self.q_ndim)
         )
-        print(self.q_ndim)
+        
         self.dynamics = HamiltonianDynamics(self.H, wgrad=wgrad)
 
     def H(self, t, z):

@@ -17,7 +17,7 @@ from oil.model_trainers import Trainer
 
 from ..systems.chain_pendulum import ChainPendulum
 from ..systems.rigid_body import project_onto_constraints
-from ..models import HNN,NN
+from ..models import HNN,NN,CHNN,CH
 from ..datasets import RigidBodyDataset
 
 import src.datasets as datasets
@@ -111,8 +111,8 @@ def make_trainer(*,network=HNN,net_cfg={},lr=3e-3,n_train=800,regen=False,
         bs=200,num_epochs=100,trainer_config={},
         opt_cfg={'weight_decay':1e-5}):
     # Create Training set and model
-    angular = False #not issubclass(network,(CH,CL))
-    splits = {"train": n_train,"test": 200}
+    angular = not issubclass(network,CH)
+    splits = {"train": n_train, "test": 200}
     with FixedNumpySeed(0):
         dataset = dataset(n_systems=n_train+200, regen=regen, chunk_len=C,
                           body=body, angular_coords=angular)
