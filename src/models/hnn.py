@@ -1,6 +1,8 @@
 import torch
 from torch import Tensor
 import torch.nn as nn
+
+import numpy as np
 from torchdiffeq import odeint
 from oil.utils.utils import export, Named
 from .utils import FCsoftplus, FCtanh, Reshape, Linear, CosSin
@@ -51,6 +53,7 @@ class HNN(nn.Module, metaclass=Named):
             Linear(chs[-1], self.q_ndim * self.q_ndim, zero_bias=True, orthogonal_init=True),
             Reshape(-1, self.q_ndim, self.q_ndim)
         )
+        print(self.q_ndim)
         self.dynamics = HamiltonianDynamics(self.H, wgrad=wgrad)
 
     def H(self, t, z):

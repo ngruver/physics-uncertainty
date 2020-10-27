@@ -2,6 +2,7 @@
     implementation of SWAG
 """
 
+import sys
 import torch
 import numpy as np
 import itertools
@@ -20,7 +21,8 @@ def swag_parameters(module, params, no_cov_mat=True):
         if module._parameters[name] is None:
             continue
         data = module._parameters[name].data
-        module._parameters.pop(name)
+
+        # module._parameters.pop(name)
         module.register_buffer("%s_mean" % name, data.new(data.size()).zero_())
         module.register_buffer("%s_sq_mean" % name, data.new(data.size()).zero_())
 
@@ -47,6 +49,7 @@ class SWAG(torch.nn.Module):
         self.var_clamp = var_clamp
 
         self.base = base(*args, **kwargs)
+
         self.base.apply(
             lambda module: swag_parameters(
                 module=module, params=self.params, no_cov_mat=self.no_cov_mat
@@ -143,7 +146,7 @@ class SWAG(torch.nn.Module):
         samples_list = unflatten_like(sample, mean_list)
 
         for (module, name), sample in zip(self.params, samples_list):
-            module.__setattr__(name, sample.cuda())
+            module.__setattr__(name, torch.nn.Parameter(sample))
 
     def collect_model(self, base_model):
         for (module, name), base_param in zip(self.params, base_model.parameters()):

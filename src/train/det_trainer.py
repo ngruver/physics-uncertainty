@@ -38,9 +38,25 @@ class IntegratedDynamicsTrainer(Trainer):
     def loss(self, minibatch):
         """ Standard cross-entropy loss """
         (z0, ts), true_zs = minibatch
+        
+        if z0.ndim == 4:
+            z0 = z0.transpose(1,2)
+            z0 = z0.reshape(-1,*z0.size()[2:])
+            true_zs = true_zs.transpose(3,2).transpose(2,1)
+            true_zs = true_zs.reshape(-1,*true_zs.size()[2:])
+
         pred_zs = self.model.integrate(z0, ts[0], tol=self.hypers["tol"])
+
         self.num_mbs += 1
         return (pred_zs - true_zs).abs().mean()
+
+    def step(self, minibatch):
+        self.optimizer.zero_grad()
+        loss = self.loss(minibatch)
+        loss.backward()
+        self.optimizer.step()
+        self.model.swag_model.collect_model(self.model.net)
+        return loss
 
     def metrics(self, loader):
         mae = lambda mb: self.loss(mb).cpu().data.numpy()
@@ -95,10 +111,11 @@ def make_trainer(*,network=HNN,net_cfg={},lr=3e-3,n_train=800,regen=False,
         bs=200,num_epochs=100,trainer_config={},
         opt_cfg={'weight_decay':1e-5}):
     # Create Training set and model
-    angular = not issubclass(network,(CH,CL))
+    angular = False #not issubclass(network,(CH,CL))
     splits = {"train": n_train,"test": 200}
     with FixedNumpySeed(0):
-        dataset = dataset(n_systems=n_train+200, regen=regen, chunk_len=C,body=body,angular_coords=angular)
+        dataset = dataset(n_systems=n_train+200, regen=regen, chunk_len=C,
+                          body=body, angular_coords=angular)
         datasets = split_dataset(dataset, splits)
 
     

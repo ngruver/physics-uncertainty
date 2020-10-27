@@ -1,10 +1,11 @@
+import sys
 import torch
 import torch.nn as nn
 from torchdiffeq import odeint
 from oil.utils.utils import export, Named
 from .utils import FCsoftplus,FCtanh, Linear, CosSin
 from typing import Tuple, Union
-
+from ..uncertainty.swag import SWAG
 
 @export
 class NN(nn.Module, metaclass=Named):
@@ -25,14 +26,17 @@ class NN(nn.Module, metaclass=Named):
 
         # We parameterize angular dims in terms of cos(theta), sin(theta)
         chs = [2 * self.q_ndim + len(angular_dims)] + num_layers * [hidden_size]
-        self.net = nn.Sequential(
-            CosSin(self.q_ndim, angular_dims, only_q=False),
-            *[
-                FCtanh(chs[i], chs[i + 1], zero_bias=False, orthogonal_init=True)
-                for i in range(num_layers)
-            ],
-            Linear(chs[-1], 2 * self.q_ndim, zero_bias=False, orthogonal_init=True)
-        )
+        
+        layers = [CosSin(self.q_ndim, angular_dims, only_q=False)] + \
+                 [FCtanh(chs[i], chs[i + 1], zero_bias=False, orthogonal_init=True)
+                    for i in range(num_layers)] + \
+                 [Linear(chs[-1], 2 * self.q_ndim, zero_bias=False, orthogonal_init=True)]   
+
+        self.net = nn.Sequential(*layers)
+
+        wrap = lambda: nn.Sequential(*layers)
+        self.swag_model = SWAG(wrap)
+
         print("NN currently assumes time independent ODE")
         self.nfe = 0
         self.angular_dims = angular_dims
@@ -65,6 +69,12 @@ class NN(nn.Module, metaclass=Named):
         zt = zt.permute(1, 0, 2)  # T x N x D -> N x T x D
         return zt.reshape(bs, len(ts), *z0.shape[1:])
 
+    def integrate_swag(self, z0, ts, tol=1e-4, method="rk4"):
+        forward = lambda t, z: self.swag_model(z)
+        bs = z0.shape[0]
+        zt = odeint(forward, z0.reshape(bs, -1), ts, rtol=tol, method=method)
+        zt = zt.permute(1, 0, 2)  # T x N x D -> N x T x D
+        return zt.reshape(bs, len(ts), *z0.shape[1:])
 
 @export
 class DeltaNN(NN):
