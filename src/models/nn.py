@@ -53,7 +53,7 @@ class NN(nn.Module, metaclass=Named):
         self.nfe += 1
         return self.net(z)
 
-    def integrate(self, z0, ts, tol=1e-4, method="rk4"):
+    def _integrate(self, dynamics, z0, ts, tol=1e-4, method="rk4"):
         """ Integrates an initial state forward in time according to the learned dynamics
         Args:
             z0: (bs x 2 x D) sized
@@ -65,16 +65,29 @@ class NN(nn.Module, metaclass=Named):
         assert (z0.ndim == 3) and (ts.ndim == 1)
         bs = z0.shape[0]
         self.nfe = 0
-        zt = odeint(self, z0.reshape(bs, -1), ts, rtol=tol, method=method)
+        zt = odeint(dynamics, z0.reshape(bs, -1), ts, rtol=tol, method=method)
         zt = zt.permute(1, 0, 2)  # T x N x D -> N x T x D
-        return zt.reshape(bs, len(ts), *z0.shape[1:])
+        return zt.reshape(bs, len(ts), *z0.shape[1:])    
+
+    def integrate(self, z0, ts, tol=1e-4, method="rk4"):
+        """ Integrates an initial state forward in time according to the learned dynamics
+        Args:
+            z0: (bs x 2 x D) sized
+                Tensor representing initial state. N is the batch size
+            ts: a length T Tensor representing the time points to evaluate at
+            tol: integrator tolerance
+        Returns: a bs x T x 2 x D sized Tensor
+        """
+        return self._integrate(lambda t,z: self.forward(t,z), z0, ts, tol, method)
 
     def integrate_swag(self, z0, ts, tol=1e-4, method="rk4"):
-        forward = lambda t, z: self.swag_model(z)
-        bs = z0.shape[0]
-        zt = odeint(forward, z0.reshape(bs, -1), ts, rtol=tol, method=method)
-        zt = zt.permute(1, 0, 2)  # T x N x D -> N x T x D
-        return zt.reshape(bs, len(ts), *z0.shape[1:])
+        return self._integrate(lambda t, z: self.swag_model(z), z0, ts, tol, method)
+
+    def collect_model(self):
+        self.swag_model.collect_model(self.net)
+
+    def sample(self):
+        self.swag_model.sample()
 
 @export
 class DeltaNN(NN):

@@ -59,7 +59,9 @@ class ConstrainedHamiltonianDynamics(nn.Module):
         self.wgrad = wgrad
         self.nfe = 0
 
-    def forward(self, t: Tensor, z: Tensor) -> Tensor:
+    def forward(self, H: Callable[[Tensor, Tensor], Tensor], 
+                      DPhi: Callable[[Tensor], Tensor], 
+                      t: Tensor, z: Tensor) -> Tensor:
         """ Computes a batch of `NxD` time derivatives of the state `z` at time `t`
         Args:
             t: Scalar Tensor of the current time
@@ -69,8 +71,8 @@ class ConstrainedHamiltonianDynamics(nn.Module):
         self.nfe += 1
         with torch.enable_grad():
             z = torch.zeros_like(z, requires_grad=True) + z
-            P = Proj(self.DPhi(z))
-            H = self.H(t, z).sum()  # elements in mb are independent, gives mb gradients
+            P = Proj(DPhi(z))
+            H = H(t, z).sum()  # elements in mb are independent, gives mb gradients
             dH = torch.autograd.grad(H, z, create_graph=self.wgrad)[0]  # gradient
         dynamics = P(J(dH.unsqueeze(-1))).squeeze(-1)
         # if self.Phi is not None:

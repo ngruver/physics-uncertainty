@@ -1,3 +1,4 @@
+import sys
 import pickle
 import copy
 import warnings
@@ -30,16 +31,17 @@ def logspace(a, b, k):
 class IntegratedDynamicsTrainer(Trainer):
     """ Model should specify the dynamics, mapping from t,z -> dz/dt"""
 
-    def __init__(self, *args, tol=1e-4, **kwargs):
+    def __init__(self, *args, tol=1e-4, constrained=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.hypers["tol"] = tol
         self.num_mbs = 0
+        self.constrained = constrained
 
     def loss(self, minibatch):
         """ Standard cross-entropy loss """
         (z0, ts), true_zs = minibatch
         
-        if z0.ndim == 4:
+        if not self.constrained:
             z0 = z0.transpose(1,2)
             z0 = z0.reshape(-1,*z0.size()[2:])
             true_zs = true_zs.transpose(3,2).transpose(2,1)
@@ -55,7 +57,7 @@ class IntegratedDynamicsTrainer(Trainer):
         loss = self.loss(minibatch)
         loss.backward()
         self.optimizer.step()
-        self.model.swag_model.collect_model(self.model.net)
+        self.model.collect_model()
         return loss
 
     def metrics(self, loader):
@@ -117,7 +119,6 @@ def make_trainer(*,network=HNN,net_cfg={},lr=3e-3,n_train=800,regen=False,
         dataset = dataset(n_systems=n_train+200, regen=regen, chunk_len=C,
                           body=body, angular_coords=angular)
         datasets = split_dataset(dataset, splits)
-
     
     dof_ndim = dataset.body.D if angular else dataset.body.d
     model = network(dataset.body.body_graph,dof_ndim =dof_ndim,
@@ -132,4 +133,6 @@ def make_trainer(*,network=HNN,net_cfg={},lr=3e-3,n_train=800,regen=False,
     opt_constr = lambda params: AdamW(params, lr=lr,**opt_cfg)
     lr_sched = cosLr(num_epochs)
     return IntegratedDynamicsTrainer(model,dataloaders,opt_constr,lr_sched,
-                            log_args={"timeFrac": 1 / 4, "minPeriod": 0.0},**trainer_config)
+                            constrained=issubclass(network,CH),
+                            log_args={"timeFrac": 1 / 4, "minPeriod": 0.0},
+                            **trainer_config)
