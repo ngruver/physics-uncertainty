@@ -161,7 +161,7 @@ class CH(nn.Module, metaclass=Named):  # abstract constrained Hamiltonian networ
         Minv = lambda p: self.Minv(d_moments, p)
         H = lambda t, z: self.H(Minv, self.compute_V, t, z)
         DPhi = lambda zp: self.DPhi(Minv, zp)
-        dynamics = lambda t, z: self.dynamics(H, DPhi, t, z)
+        dynamics = lambda t, z: self.dynamics(t, z, H=H, DPhi=DPhi)
         return self._integrate(dynamics, d_moments, z0, ts, tol, method)
 
     def integrate_swag(self, z0, ts, tol=1e-4, method="rk4"):
@@ -169,7 +169,7 @@ class CH(nn.Module, metaclass=Named):  # abstract constrained Hamiltonian networ
         Minv = lambda p: self.Minv(d_moments, p)
         H = lambda t, z: self.H(Minv, self.compute_V_swag, t, z)
         DPhi = lambda zp: self.DPhi(Minv, zp)
-        dynamics = lambda t, z: self.dynamics(H, DPhi, t, z)
+        dynamics = lambda t, z: self.dynamics(t, z, H=H, DPhi=DPhi)
         return self._integrate(dynamics, d_moments, z0, ts, tol, method)        
 
     def collect_model(self):
