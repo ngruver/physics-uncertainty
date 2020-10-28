@@ -12,4 +12,6 @@ dependencies:
     - numpy
     - scipy
     - torch
+    - gpytorch
     - torchdiffeq
+    - "git+https://github.com/mfinzi/olive-oil-ml#egg=olive-oil-ml"
