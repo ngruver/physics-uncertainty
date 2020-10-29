@@ -9,6 +9,7 @@ dependencies:
     - altair
     - seaborn
     - jupyterlab
+    - ipywidgets
     - networkx
     - numpy
     - scipy
