@@ -107,32 +107,39 @@ class IntegratedDynamicsTrainer(Trainer):
             both = (rel_errs, pert_rel_errs,zt_pred,zt_pert)
         return both
 
-def make_trainer(*,network=HNN,net_cfg={},lr=3e-3,n_train=800,regen=False,
-        dataset=RigidBodyDataset,body=ChainPendulum(3),C=5,
-        dtype=torch.float32,root_dir=None,device=torch.device("cuda"),
-        bs=200,num_epochs=100,trainer_config={},
-        opt_cfg={'weight_decay':1e-5}):
+def make_trainer(*,
+    network=HNN, net_cfg={}, device=None, root_dir=None,
+    dataset=RigidBodyDataset, body=ChainPendulum(3), tau=3, n_train=800, regen=False, C=5,
+    lr=3e-3, bs=200, num_epochs=100, trainer_config={}):
     # Create Training set and model
+    if isinstance(network, str):
+        network = eval(network)
+    if device is None:
+        device = "cuda:0" if torch.cuda.is_available() else None
     angular = not issubclass(network,CH)
     splits = {"train": n_train, "test": 200}
+    body.integration_time = tau
     with FixedNumpySeed(0):
         dataset = dataset(root_dir=root_dir, n_systems=n_train+200, regen=regen,
                           chunk_len=C, body=body, angular_coords=angular)
         datasets = split_dataset(dataset, splits)
     
     dof_ndim = dataset.body.D if angular else dataset.body.d
-    model = network(dataset.body.body_graph,dof_ndim =dof_ndim,
-                    angular_dims=dataset.body.angular_dims,**net_cfg)
-    model = model.to(device=device, dtype=dtype)
+    model = network(dataset.body.body_graph, dof_ndim=dof_ndim,
+                    angular_dims=dataset.body.angular_dims, **net_cfg)
+    model = model.float().to(device)
     # Create train and Dev(Test) dataloaders and move elems to gpu
-    dataloaders = {k: LoaderTo(
-                DataLoader(v, batch_size=min(bs, splits[k]), num_workers=0, shuffle=(k == "train")),
-                device=device,dtype=dtype) for k, v in datasets.items()}
+    dataloaders = {
+        k: LoaderTo(DataLoader(v, batch_size=min(bs, splits[k]), num_workers=0, 
+            shuffle=(k == "train")), device=device, dtype=torch.float32)
+        for k, v in datasets.items()}
+
     dataloaders["Train"] = dataloaders["train"]
+
     # Initialize optimizer and learning rate schedule
-    opt_constr = lambda params: AdamW(params, lr=lr,**opt_cfg)
+    opt_constr = lambda params: AdamW(params, lr=lr, weight_decay=1e-5)
     lr_sched = cosLr(num_epochs)
-    return IntegratedDynamicsTrainer(model,dataloaders,opt_constr,lr_sched,
-                            constrained=issubclass(network,CH),
-                            log_args={"timeFrac": 1 / 4, "minPeriod": 0.0},
-                            **trainer_config)
+    return IntegratedDynamicsTrainer(
+        model,dataloaders, opt_constr, lr_sched,
+        constrained=issubclass(network, CH), log_args={"timeFrac": 1 / 4, "minPeriod": 0.0},
+        **trainer_config)

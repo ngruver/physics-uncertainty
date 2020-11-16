@@ -9,13 +9,11 @@ from ..dynamics.hamiltonian import (
 )
 from ..systems.rigid_body import rigid_DPhi,rigid_Phi
 from typing import Optional, Tuple, Union
-from oil.utils.utils import export, Named
 import networkx as nx
 import torch.nn.functional as F
 from ..uncertainty.swag import SWAG
 
-@export
-class CH(nn.Module, metaclass=Named):  # abstract constrained Hamiltonian network class
+class CH(nn.Module):  # abstract constrained Hamiltonian network class
     def __init__(self,G,
         dof_ndim: Optional[int] = None,
         angular_dims: Union[Tuple, bool] = tuple(),
@@ -178,7 +176,6 @@ class CH(nn.Module, metaclass=Named):  # abstract constrained Hamiltonian networ
     def sample(self):
         self.swag_d_moments.sample()
 
-@export
 class CHNN(CH):
     def __init__(self,G,
         dof_ndim: Optional[int] = None,

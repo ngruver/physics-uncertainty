@@ -4,14 +4,12 @@ import torch.nn as nn
 
 import numpy as np
 from torchdiffeq import odeint
-from oil.utils.utils import export, Named
 from .utils import FCsoftplus, FCtanh, Reshape, Linear, CosSin
 from ..dynamics.hamiltonian import HamiltonianDynamics, GeneralizedT
 from typing import Tuple
 
 
-@export
-class HNN(nn.Module, metaclass=Named):
+class HNN(nn.Module):
     def __init__(
         self,
         G,

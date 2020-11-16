@@ -2,13 +2,11 @@ import sys
 import torch
 import torch.nn as nn
 from torchdiffeq import odeint
-from oil.utils.utils import export, Named
 from .utils import FCsoftplus,FCtanh, Linear, CosSin
 from typing import Tuple, Union
 from ..uncertainty.swag import SWAG
 
-@export
-class NN(nn.Module, metaclass=Named):
+class NN(nn.Module):
     def __init__(
         self,
         G,
@@ -89,7 +87,6 @@ class NN(nn.Module, metaclass=Named):
     def sample(self):
         self.swag_model.sample()
 
-@export
 class DeltaNN(NN):
     def integrate(self, z0, ts, tol=0.0,method=None):
         """ Integrates an initial state forward in time according to the learned

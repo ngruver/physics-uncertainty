@@ -6,7 +6,6 @@ import networkx as nx
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset
-from oil.utils.utils import Named, export
 
 from .systems.rigid_body import RigidBody
 from .systems.chain_pendulum import ChainPendulum
@@ -29,8 +28,7 @@ class FixedSeedAll(object):
 def rel_err(x: Tensor, y: Tensor) -> Tensor:
     return (((x - y) ** 2).sum() / ((x + y) ** 2).sum()).sqrt()
 
-@export
-class RigidBodyDataset(Dataset, metaclass=Named):
+class RigidBodyDataset(Dataset):
     space_dim = 2
     num_targets = 1
 
