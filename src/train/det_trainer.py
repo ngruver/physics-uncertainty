@@ -109,15 +109,15 @@ class IntegratedDynamicsTrainer(Trainer):
 
 def make_trainer(*,network=HNN,net_cfg={},lr=3e-3,n_train=800,regen=False,
         dataset=RigidBodyDataset,body=ChainPendulum(3),C=5,
-        dtype=torch.float32,device=torch.device("cuda"),
+        dtype=torch.float32,root_dir=None,device=torch.device("cuda"),
         bs=200,num_epochs=100,trainer_config={},
         opt_cfg={'weight_decay':1e-5}):
     # Create Training set and model
     angular = not issubclass(network,CH)
     splits = {"train": n_train, "test": 200}
     with FixedNumpySeed(0):
-        dataset = dataset(n_systems=n_train+200, regen=regen, chunk_len=C,
-                          body=body, angular_coords=angular)
+        dataset = dataset(root_dir=root_dir, n_systems=n_train+200, regen=regen,
+                          chunk_len=C, body=body, angular_coords=angular)
         datasets = split_dataset(dataset, splits)
     
     dof_ndim = dataset.body.D if angular else dataset.body.d

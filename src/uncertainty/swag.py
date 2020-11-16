@@ -67,6 +67,8 @@ class SWAG(torch.nn.Module):
             self.sample_fullrank(scale, cov, fullrank)
         else:
             self.sample_blockwise(scale, cov, fullrank)
+            
+        self.to("cuda")
 
     def sample_blockwise(self, scale, cov, fullrank):
         for module, name in self.params:
@@ -146,7 +148,8 @@ class SWAG(torch.nn.Module):
         samples_list = unflatten_like(sample, mean_list)
 
         for (module, name), sample in zip(self.params, samples_list):
-            module.__setattr__(name, torch.nn.Parameter(sample))
+            sample = torch.nn.Parameter(sample)
+            module.__setattr__(name, sample)
 
     def collect_model(self, base_model):
         for (module, name), base_param in zip(self.params, base_model.parameters()):
