@@ -11,11 +11,11 @@ parameters:
   num_bodies:
     value: 2
   lr:
-    value: 0.01
+    values: [0.01, 0.003, 0.001]
   tau:
     values: [3., 4., 5., 6.]
   C:
-    values: [5, 10, 15]
+    values: [5, 10, 15, 20]
   num_epochs:
     value: 50
 program: exps/train_chnn.py
