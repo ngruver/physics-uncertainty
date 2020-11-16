@@ -18,6 +18,7 @@ source "${HOME}/.bash_profile"
 
 export WANDB_MODE=run
 export WANDB_DIR="${LOGDIR}"
+export WANDB_PROJECT="physics-uncertainty-exps"
 export WANDB_NAME="${SLURM_JOB_NAME}--${SLURM_JOB_ID}"
 
 cd "${WORKDIR}/physics-uncertainty"

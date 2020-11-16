@@ -73,7 +73,7 @@ def plot_ts(body, model, n_samples=10, device=None):
 
 
 def main(num_bodies=2, **cfg):
-  wandb.init(project='physics-uncertainty', config=cfg)
+  wandb.init(project=os.environ['WANDB_PROJECT'], config=cfg)
 
   cfg['device'] = cfg.get('device', None)
   if cfg['device'] is None:
