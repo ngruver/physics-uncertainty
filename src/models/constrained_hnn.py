@@ -21,7 +21,8 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
 
         super().__init__(**kwargs)
         if angular_dims != tuple():
-            print("CH ignores angular_dims")
+            # print("CH ignores angular_dims")
+            pass
         self.G = G
         self.nfe = 0
         self.wgrad = wgrad
@@ -29,11 +30,11 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
         self.dof_ndim = dof_ndim
         self.q_ndim = self.n_dof * self.dof_ndim
         self.dynamics = ConstrainedHamiltonianDynamics(self.H, self.DPhi, wgrad=self.wgrad)
-        
+
         #self._Minv = torch.nn.Parameter(torch.eye(self.n_dof))
-        print("CH currently assumes potential energy depends only on q")
-        print("CH currently assumes time independent Hamiltonian")
-        print("CH assumes positions q are in Cartesian coordinates")
+        # print("CH currently assumes potential energy depends only on q")
+        # print("CH currently assumes time independent Hamiltonian")
+        # print("CH assumes positions q are in Cartesian coordinates")
         #self.moments = torch.nn.Parameter(torch.ones(self.n_dof,self.n_dof))
         #self.masses = torch.nn.Parameter(torch.zeros(self.n_dof))
         #self.moments = torch.nn.Parameter(torch.zeros(self.dof_ndim,self.n_dof))

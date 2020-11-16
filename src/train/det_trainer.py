@@ -114,8 +114,6 @@ def make_trainer(*,
     # Create Training set and model
     if isinstance(network, str):
         network = eval(network)
-    if device is None:
-        device = "cuda:0" if torch.cuda.is_available() else None
     angular = not issubclass(network,CH)
     splits = {"train": n_train, "test": 200}
     body.integration_time = tau

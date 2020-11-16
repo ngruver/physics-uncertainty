@@ -6,17 +6,19 @@
 #   name: val/lik
 #   goal: maximize
 
-method: random
+method: grid
 parameters:
-  network:
-    value: CHNN
+  num_bodies:
+    value: 2
   lr:
     value: 0.01
   tau:
     values: [3., 4., 5., 6.]
   C:
     values: [5, 10, 15]
-program: exps/run.py
+  num_epochs:
+    value: 50
+program: exps/train_chnn.py
 command:
   - ${env}
   - ${interpreter}
