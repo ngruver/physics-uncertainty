@@ -110,7 +110,8 @@ class IntegratedDynamicsTrainer(Trainer):
 def make_trainer(*,
     network=HNN, net_cfg={}, device=None, root_dir=None,
     dataset=RigidBodyDataset, body=ChainPendulum(3), tau=3, n_train=800, regen=False, C=5,
-    lr=3e-3, bs=200, num_epochs=100, trainer_config={}):
+    lr=3e-3, bs=200, num_epochs=100, trainer_config={}, net_seed=None):
+    
     # Create Training set and model
     if isinstance(network, str):
         network = eval(network)
@@ -121,11 +122,12 @@ def make_trainer(*,
         dataset = dataset(root_dir=root_dir, n_systems=n_train+200, regen=regen,
                           chunk_len=C, body=body, angular_coords=angular)
         datasets = split_dataset(dataset, splits)
-    
+
     dof_ndim = dataset.body.D if angular else dataset.body.d
     model = network(dataset.body.body_graph, dof_ndim=dof_ndim,
                     angular_dims=dataset.body.angular_dims, **net_cfg)
     model = model.float().to(device)
+    
     # Create train and Dev(Test) dataloaders and move elems to gpu
     dataloaders = {
         k: LoaderTo(DataLoader(v, batch_size=min(bs, splits[k]), num_workers=0, 
@@ -138,6 +140,6 @@ def make_trainer(*,
     opt_constr = lambda params: AdamW(params, lr=lr, weight_decay=1e-5)
     lr_sched = cosLr(num_epochs)
     return IntegratedDynamicsTrainer(
-        model,dataloaders, opt_constr, lr_sched,
+        model, dataloaders, opt_constr, lr_sched,
         constrained=issubclass(network, CH), log_args={"timeFrac": 1 / 4, "minPeriod": 0.0},
         **trainer_config)

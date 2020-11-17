@@ -18,6 +18,8 @@ parameters:
     values: [5, 10, 15, 20]
   num_epochs:
     value: 50
+  uq_type:
+    value: ["swag", "deep-ensemble"]
 program: exps/train_chnn.py
 command:
   - ${env}
