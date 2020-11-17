@@ -76,13 +76,13 @@ def plot_ts(body, model, n_samples=10, device=None):
 
 
 def main(**cfg):
-  wandb.init(project=os.environ['WANDB_PROJECT'], config=cfg)
+  wandb.init(config=cfg)
 
   cfg['device'] = cfg.get('device', None)
   if cfg['device'] is None:
     cfg['device'] = 'cuda:0' if torch.cuda.is_available() else None
 
-  body = ChainPendulum(cfg.get('num_bodies', 2))
+  body = ChainPendulum(cfg.get('num_bodies', 3))
   trainer = make_trainer(**cfg,
     network=CHNN, body=body, trainer_config=dict(log_dir=wandb.run.dir))
 
@@ -92,11 +92,9 @@ def main(**cfg):
   if cfg['uq_type'] is not None:
     plot_ts(body, trainer.model, device=cfg['device'])
 
-  save_dir = os.path.join(os.environ["LOGDIR"], os.environ['WANDB_SWEEP_ID'])
-  if not os.path.exists(save_dir):
-    os.mkdir(save_dir)
-  save_path = os.path.join(save_dir, os.environ['WANDB_NAME'])
-  torch.save(trainer.model.state_dict(), save_path)
+  save_dir = os.path.join(wandb.run.dir, 'model.pt')
+  torch.save(trainer.model.state_dict(), save_dir)
+  wandb.save(save_dir)
 
 if __name__ == "__main__":
   os.environ['WANDB_MODE'] = os.environ.get('WANDB_MODE', default='dryrun')
