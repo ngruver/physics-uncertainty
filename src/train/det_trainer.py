@@ -36,6 +36,7 @@ class IntegratedDynamicsTrainer(Trainer):
         self.hypers["tol"] = tol
         self.num_mbs = 0
         self.constrained = constrained
+        self.collect = False
 
     def loss(self, minibatch):
         """ Standard cross-entropy loss """
@@ -57,7 +58,10 @@ class IntegratedDynamicsTrainer(Trainer):
         loss = self.loss(minibatch)
         loss.backward()
         self.optimizer.step()
-        self.model.collect_model()
+        
+        if self.collect:
+            self.model.collect_model()
+        
         return loss
 
     def metrics(self, loader):

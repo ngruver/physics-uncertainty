@@ -26,6 +26,6 @@ cd "${WORKDIR}/physics-uncertainty"
 export PYTHONPATH="$(pwd):${PYTHONPATH}"
 
 conda deactivate
-conda activate physics-uncertainty
+conda activate phy-unc
 
 wandb agent --count=1 ${WANDB_SWEEP_ID}
