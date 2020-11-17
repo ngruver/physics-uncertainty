@@ -6,6 +6,7 @@
 #   name: val/lik
 #   goal: maximize
 
+project: physics-uncertainty-exps
 method: grid
 parameters:
   num_bodies:
@@ -19,7 +20,7 @@ parameters:
   num_epochs:
     value: 50
   uq_type:
-    value: ["swag", "deep-ensemble"]
+    values: ["swag", "deep-ensemble"]
 program: exps/train_chnn.py
 command:
   - ${env}
