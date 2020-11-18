@@ -71,9 +71,7 @@ def kl_metric(true_zt_chaos, pred_zt):
 
 	kl_gaussian = ((pred_zt_std / (true_zt_chaos_std + 1e-7)) + 1e-7).log() + \
 								(true_zt_chaos_std.pow(2) + (true_zt_chaos_mu - pred_zt_mu).pow(2)) / (2 * pred_zt_std.pow(2) + 1e-7) - 0.5
-	print(((pred_zt_std / (true_zt_chaos_std + 1e-7)) + 1e-7).log())
-	print((true_zt_chaos_std.pow(2) + (true_zt_chaos_mu - pred_zt_mu).pow(2)) / (2 * pred_zt_std.pow(2) + 1e-7))
-	print(kl_gaussian)
+
 	return kl_gaussian.mean().item()
 
 def compute_metrics(true_zt, true_zt_chaos, pred_zt):
