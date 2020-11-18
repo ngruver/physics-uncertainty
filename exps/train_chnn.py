@@ -1,54 +1,25 @@
 import os
+import sys
 import wandb
 import altair as alt
 import pandas as pd
+import numpy as np
 from tqdm.auto import tqdm
 import torch
 
 from src.train.ensemble_trainer import make_trainer
 from src.models import CHNN
 from src.systems.chain_pendulum import ChainPendulum
-from src.systems.rigid_body import project_onto_constraints
+from src.datasets import get_chaotic_eval_dataset
 
-class FixedPytorchSeed(object):
-    def __init__(self, seed):
-        self.seed = seed
-    def __enter__(self):
-        self.pt_rng_state = torch.random.get_rng_state()
-        torch.manual_seed(self.seed)
-    def __exit__(self, *args):
-        torch.random.set_rng_state(self.pt_rng_state)
-
-def plot_ts(body, model, n_samples=10, device=None):
-  alt.data_transformers.disable_max_rows()
-
-  with FixedPytorchSeed(0):
-    z0_orig = body.sample_initial_conditions(1)
-    eps = 2. * torch.rand_like(z0_orig.expand(n_samples, -1, -1, -1)) - 1.
-  
-  z0 = project_onto_constraints(body.body_graph,
-                                z0_orig.expand(n_samples, -1, -1, -1) + 0.1 * eps, tol=1e-5)
-  ts = torch.arange(0., 10.0, body.dt, device=z0_orig.device, dtype=z0_orig.dtype)
-
-  true_zt = body.integrate(z0_orig, ts, method='rk4')
-  true_zt_chaos = body.integrate(z0, ts, method='rk4')
-
-  model = model.to(device)
-  z0_orig = z0_orig.to(device)
-  ts = ts.to(device)
-
-  pred_zt = model(z0_orig, ts, n_samples=n_samples)
-
-  body_idx, dof_idx = 1, 1
-
-  def generate_chart(body_idx, dof_idx):
+def generate_chart(ts, true_zt, true_zt_chaos, pred_zt, body_idx, dof_idx):
     true_chart = alt.Chart(pd.DataFrame({
         't': ts.cpu().numpy(),
-        'y': true_zt[..., 0, body_idx, dof_idx].mean(dim=0).cpu().numpy(),
+        'y': true_zt.mean(dim=0).cpu().numpy(),
     })).mark_line(color='black',strokeDash=[5,5]).encode(x='t:Q', y=alt.Y('y:Q'))
 
-    pred_zt_mu = pred_zt[..., 0, body_idx, dof_idx].mean(dim=0)
-    pred_zt_std = pred_zt[..., 0, body_idx, dof_idx].std(dim=0)
+    pred_zt_mu = pred_zt.mean(dim=0)
+    pred_zt_std = pred_zt.std(dim=0)
     pred_chart = alt.Chart(pd.DataFrame({
         't': ts.cpu().numpy(),
         'y': pred_zt_mu.cpu().numpy(),
@@ -57,8 +28,8 @@ def plot_ts(body, model, n_samples=10, device=None):
     })).mark_line(color='red',opacity=0.5).encode(x='t:Q', y='y:Q')
     pred_err_chart = pred_chart.mark_area(opacity=0.1,color='red').encode(y='y_lo', y2='y_hi')
 
-    true_zt_chaos_mu = true_zt_chaos[..., 0, body_idx, dof_idx].mean(dim=0)
-    true_zt_chaos_std = true_zt_chaos[..., 0, body_idx, dof_idx].std(dim=0)
+    true_zt_chaos_mu = true_zt_chaos.mean(dim=0)
+    true_zt_chaos_std = true_zt_chaos.std(dim=0)
     chaos_chart = alt.Chart(pd.DataFrame({
         't': ts.cpu().numpy(),
         'y': true_zt_chaos_mu.cpu().numpy(),
@@ -68,11 +39,40 @@ def plot_ts(body, model, n_samples=10, device=None):
     chaos_err_chart = chaos_chart.mark_area(opacity=0.1,color='blue').encode(y='y_lo', y2='y_hi')
 
     return (chaos_err_chart + chaos_chart + true_chart | pred_err_chart + pred_chart + true_chart).properties(title=f'Mass = {body_idx}, DoF = {dof_idx}; Chaos v/s Predictions')
-  
-  for b in tqdm(range(body.n)):
-    for dof in tqdm(range(2), leave=False):
-      chart = generate_chart(b, dof)
-      wandb.log({f'b={b};dof={dof}': wandb.Html(chart.to_html())})
+
+def plot_ts(body, model, n_samples=10, device=None):
+  evald = get_chaotic_eval_dataset(body, n_samples)
+
+  model = model.to(device)
+
+  ts = evald['ts'].to(device)
+  z0_orig = evald['z0_orig'].to(device)
+  true_zt = evald['true_zt'].to(device)
+  true_zt_chaos = evald['true_zt_chaos'].to(device)
+
+  pred_zt = model(z0_orig, ts, n_samples=n_samples)
+
+  alt.data_transformers.disable_max_rows()
+
+  for i in range(z0_orig.size(0)):
+    for b in tqdm(range(body.n)):
+      for dof in tqdm(range(2), leave=False):
+        chart = generate_chart(ts, true_zt[i, :, 0, b, dof], 
+                                   true_zt_chaos[i, :, :, 0, b, dof],
+                                   pred_zt[i, :, :, 0, b, dof], b, dof)
+        wandb.log({f'i={i};b={b};dof={dof}': wandb.Html(chart.to_html())})
+
+def evaluate_uq(body, model, n_samples=10, device=None):
+    evald = get_chaotic_eval_dataset(body, n_samples)
+
+    model = model.to(device)
+
+    ts = evald['ts'].to(device)
+    z0_orig = evald['z0_orig'].to(device)
+    true_zt = evald['true_zt'].to(device)
+    true_zt_chaos = evald['true_zt_chaos'].to(device)
+
+    pred_zt = model(z0_orig, ts, n_samples=n_samples)
 
 
 def main(**cfg):

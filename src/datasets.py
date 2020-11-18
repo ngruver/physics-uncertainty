@@ -8,7 +8,19 @@ from torch import Tensor
 from torch.utils.data import Dataset
 
 from .systems.rigid_body import RigidBody
+from .systems.rigid_body import project_onto_constraints
 from .systems.chain_pendulum import ChainPendulum
+
+class FixedPytorchSeed(object):
+    def __init__(self, seed):
+        self.seed = seed
+    def __enter__(self):
+        self.pt_rng_state = torch.random.get_rng_state()
+        torch.manual_seed(self.seed)
+        if torch.cuda.is_available():
+          torch.cuda.manual_seed(self.seed)
+    def __exit__(self, *args):
+        torch.random.set_rng_state(self.pt_rng_state)
 
 class FixedSeedAll(object):
     def __init__(self, seed):
@@ -120,15 +132,68 @@ class RigidBodyDataset(Dataset):
         n_trajs, traj_len, *z_dim = zs.shape
         n_chunks = traj_len // chunk_len
         # Cut each trajectory into non-overlapping chunks
-        chunked_ts = torch.stack(ts.chunk(n_chunks, dim=1))
-        chunked_zs = torch.stack(zs.chunk(n_chunks, dim=1))
+        chunks_ts = ts.split(chunk_len, dim=1)
+        chunks_zs = zs.split(chunk_len, dim=1)
+
+        if (traj_len % chunk_len) != 0:
+            chunks_ts = chunks_ts[:-1]
+            chunks_zs = chunks_zs[:-1]
+            n_chunks = n_chunks - 1
+
+        chunked_ts = torch.stack(chunks_ts)
+        chunked_zs = torch.stack(chunks_zs)
+
         # From each trajectory, we choose a single chunk randomly
         chunk_idx = torch.randint(0, n_chunks, (n_trajs,), device=zs.device).long()
         chosen_ts = chunked_ts[chunk_idx, range(n_trajs)]
         chosen_zs = chunked_zs[chunk_idx, range(n_trajs)]
+
         return chosen_ts, chosen_zs
 
     def sample_system(self, N):
         """"""
         return self.body.sample_initial_conditions(N)
+
+
+def get_chaotic_eval_dataset(body, n_init=5, n_samples=10):
+    eval_dir = os.path.join(os.environ['DATADIR'], "chnn")
+    if not os.path.exists(eval_dir):
+        os.mkdir(eval_dir)
+
+    eval_path = os.path.join(eval_dir, "{}_body_eval_dataset.pt".format(body.n))
+    if os.path.exists(eval_path):
+        return torch.load(eval_path)
+
+    tau = 10.0
+
+    with FixedSeedAll(0):
+        z0_orig = body.sample_initial_conditions(n_init)
+
+        z0_orig_dup = z0_orig.unsqueeze(1).expand(-1, n_samples, -1, -1, -1)
+        z0_orig_dup = z0_orig_dup.reshape(n_init * n_samples, *np.shape(z0_orig_dup)[2:])
+        eps = 2. * torch.rand_like(z0_orig_dup) - 1.
+        z0 = z0_orig_dup + 0.1 * eps
+        z0 = project_onto_constraints(body.body_graph, z0, tol=1e-5)
+    
+    ts = torch.arange(0., tau, body.dt, device=z0_orig.device, dtype=z0_orig.dtype)
+    
+    true_zt = body.integrate(z0_orig, ts, method='rk4')
+    true_zt_chaos = body.integrate(z0, ts, method='rk4')
+    true_zt_chaos = true_zt_chaos.reshape(n_init, n_samples, *np.shape(true_zt_chaos)[1:])
+
+    eval_dataset = {
+        "ts": ts,
+        "z0_orig": z0_orig,
+        "true_zt": true_zt,
+        "true_zt_chaos": true_zt_chaos
+    }
+
+    torch.save(eval_dataset, eval_path)
+
+    return eval_dataset
+
+
+
+
+
 

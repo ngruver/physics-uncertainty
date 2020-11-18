@@ -1,7 +1,10 @@
 import os
+import re
 import sys
+import glob
 import wandb
 import subprocess
+import numpy as np
 import pathos.multiprocessing as mp
 
 import torch
@@ -23,7 +26,7 @@ class SWAGModel(nn.Module):
             with torch.no_grad():
                 zt_pred = self.model.integrate_swag(z, t, method='rk4')
             pred_zt.append(zt_pred)
-        pred_zt = torch.cat(pred_zt, dim=0)
+        pred_zt = torch.stack(pred_zt, dim=0)
         return pred_zt
 
 class SWAGTrainer():
@@ -52,12 +55,12 @@ class DeepEnsembleModel(nn.Module):
             with torch.no_grad():
                 zt_pred = self.model.integrate(z, t, method='rk4')
             pred_zt.append(zt_pred)
-        pred_zt = torch.cat(pred_zt, dim=0)
+        pred_zt = torch.stack(pred_zt, dim=0)
         return pred_zt
 
 class DeepEnsembleTrainer():
 
-    def __init__(self, ensemble_size=2, num_bodies=2, **kwargs):
+    def __init__(self, ensemble_size=10, num_bodies=2, **kwargs):
         config = {
             "name": "DeepEnsemble",
             "project": "physics-uncertainty-exps",
@@ -100,9 +103,11 @@ class DeepEnsembleTrainer():
         with mp.Pool(5) as p:
             p.map(_submit, range(self.ensemble_size))
 
-        save_dir = os.path.join(os.environ["LOGDIR"], os.environ['WANDB_SWEEP_ID'])
-        model_paths = [os.path.join(save_dir, f) for f in os.listdir(save_dir)]
-        model_paths = [p for p in model_paths if os.path.isfile(p)]
+        wandb_dir = os.path.join(os.environ["LOGDIR"], "wandb")
+        sweep_dir = os.path.join(wandb_dir, "sweep-{}".format(os.environ['WANDB_SWEEP_ID']))
+        run_names = [re.match("config-(\w+).yaml",f).groups()[0] for f in os.listdir(sweep_dir)]
+        model_dirs = [glob.glob(os.path.join(wandb_dir,"*-{}".format(n)))[0] for n in run_names]
+        model_paths = [os.path.join(d, "files", "model.pt") for d in model_dirs]
 
         for model_path in model_paths:
             model = torch.load(model_path)
