@@ -90,28 +90,34 @@ class DeepEnsembleTrainer():
 
         os.environ['WANDB_PROJECT'] = "physics-uncertainty-exps"
         self.ensemble_size = ensemble_size
-        self.sweep_id = wandb.sweep(config)
+        # self.sweep_id = wandb.sweep(config)
 
         self.ensemble = []
         self._trainer = make_det_trainer(**kwargs)
         self.model = DeepEnsembleModel(self._trainer.model, self.ensemble)
 
+        self._trainers = [make_det_trainer(**kwargs) for _ in range(self.ensemble_size)]
+
     def train(self, num_epochs):
-        _submit = lambda x: subprocess.call(["sbatch", "--wait", "configs/sweep.sh"])
+        # _submit = lambda x: subprocess.call(["sbatch", "--wait", "configs/sweep.sh"])
 
-        os.environ['WANDB_SWEEP_ID'] = self.sweep_id
-        with mp.Pool(5) as p:
-            p.map(_submit, range(self.ensemble_size))
+        # os.environ['WANDB_SWEEP_ID'] = self.sweep_id
+        # with mp.Pool(5) as p:
+        #     p.map(_submit, range(self.ensemble_size))
 
-        wandb_dir = os.path.join(os.environ["LOGDIR"], "wandb")
-        sweep_dir = os.path.join(wandb_dir, "sweep-{}".format(os.environ['WANDB_SWEEP_ID']))
-        run_names = [re.match("config-(\w+).yaml",f).groups()[0] for f in os.listdir(sweep_dir)]
-        model_dirs = [glob.glob(os.path.join(wandb_dir,"*-{}".format(n)))[0] for n in run_names]
-        model_paths = [os.path.join(d, "files", "model.pt") for d in model_dirs]
+        # wandb_dir = os.path.join(os.environ["LOGDIR"], "wandb")
+        # sweep_dir = os.path.join(wandb_dir, "sweep-{}".format(os.environ['WANDB_SWEEP_ID']))
+        # run_names = [re.match("config-(\w+).yaml",f).groups()[0] for f in os.listdir(sweep_dir)]
+        # model_dirs = [glob.glob(os.path.join(wandb_dir,"*-{}".format(n)))[0] for n in run_names]
+        # model_paths = [os.path.join(d, "files", "model.pt") for d in model_dirs]
 
-        for model_path in model_paths:
-            model = torch.load(model_path)
-            self.ensemble.append(model)
+        # for model_path in model_paths:
+        #     model = torch.load(model_path)
+        #     self.ensemble.append(model)
+
+        for trainer in self._trainers:
+            trainer.train(num_epochs)
+            self.ensemble.append(trainer.model.state_dict())
 
 def make_trainer(uq_type=None, **kwargs):
     if uq_type == 'swag':

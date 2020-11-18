@@ -47,8 +47,8 @@ def plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt):
 		for b in tqdm(range(z0_orig.size(-2))):
 	  		for dof in tqdm(range(z0_orig.size(-1)), leave=False):
 	  			chart = generate_chart(ts, true_zt[i, :, 0, b, dof],
-																 true_zt_chaos[i, :, :, 0, b, dof],
-																 pred_zt[i, :, :, 0, b, dof], b, dof)
+																 true_zt_chaos[:, i, :, 0, b, dof],
+																 pred_zt[:, i, :, 0, b, dof], b, dof)
 	  			wandb.log({f'i={i};b={b};dof={dof}': wandb.Html(chart.to_html())})
 
 def calibration_metric(true_zt, pred_zt):
@@ -91,6 +91,8 @@ def evaluate_uq(body, model, n_samples=10, device=None):
 	z0_orig = evald['z0_orig'].to(device)
 	true_zt = evald['true_zt'].to(device)
 	true_zt_chaos = evald['true_zt_chaos'].to(device)
+
+	true_zt_chaos = true_zt_chaos[:n_samples]
 
 	pred_zt = model(z0_orig, ts, n_samples=n_samples)
 
