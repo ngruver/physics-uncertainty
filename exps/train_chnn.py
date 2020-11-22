@@ -86,12 +86,9 @@ def kl_metric(true_zt_chaos, pred_zt):
 	return kl_gaussian.mean().item()
 
 def compute_metrics(true_zt, true_zt_chaos, pred_zt):
-	calibration_score = calibration_metric(true_zt, pred_zt)
-	kl_score = kl_metric(true_zt_chaos, pred_zt)
-
-	print(calibration_score)
-	print(kl_score)
-	#LOG TO WANDB HERE
+  calibration_score = calibration_metric(true_zt, pred_zt)
+  kl_score = kl_metric(true_zt_chaos, pred_zt)
+  wandb.log({'calibration_score': calibration_score, 'kl_score': kl_score})
 
 def evaluate_uq(body, model, n_samples=10, device=None):
 	evald = get_chaotic_eval_dataset(body, n_samples)
