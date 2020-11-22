@@ -15,7 +15,7 @@ from src.datasets import get_chaotic_eval_dataset
 def generate_chart(ts, true_zt, true_zt_chaos, pred_zt, body_idx, dof_idx):
 	true_chart = alt.Chart(pd.DataFrame({
 	  't': ts.cpu().numpy(),
-	  'y': true_zt.mean(dim=0).cpu().numpy(),
+	  'y': true_zt.cpu().numpy(),
 	})).mark_line(color='black',strokeDash=[5,5]).encode(x='t:Q', y=alt.Y('y:Q'))
 
 	pred_zt_mu = pred_zt.mean(dim=0)
@@ -43,13 +43,24 @@ def generate_chart(ts, true_zt, true_zt_chaos, pred_zt, body_idx, dof_idx):
 def plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt):
 	alt.data_transformers.disable_max_rows()
 
-	for i in range(z0_orig.size(0)):
-		for b in tqdm(range(z0_orig.size(-2))):
-	  		for dof in tqdm(range(z0_orig.size(-1)), leave=False):
-	  			chart = generate_chart(ts, true_zt[i, :, 0, b, dof],
-																 true_zt_chaos[:, i, :, 0, b, dof],
-																 pred_zt[:, i, :, 0, b, dof], b, dof)
-	  			wandb.log({f'i={i};b={b};dof={dof}': wandb.Html(chart.to_html())})
+	nsamps = z0_orig.size(0)
+	nbodies = z0_orig.size(-2)
+	for i in range(nsamps):
+		chart = None
+
+		for b in tqdm(range(nbodies)):
+			chart_x = generate_chart(ts, true_zt[i, :, 0, b, 0],
+															 true_zt_chaos[i, :, :, 0, b, 0],
+															 pred_zt[:, i, :, 0, b, 0], b, 0)
+			chart_y = generate_chart(ts, true_zt[i, :, 0, b, 1],
+															 true_zt_chaos[i, :, :, 0, b, 1],
+															 pred_zt[:, i, :, 0, b, 1], b, 1)
+			if chart is None:
+				chart = (chart_x & chart_y)
+			else:
+				chart = chart & (chart_x & chart_y)
+
+		wandb.log({f'i={i};nb={nbodies}': wandb.Html(chart.to_html())})
 
 def calibration_metric(true_zt, pred_zt):
 	pred_zt_mu = pred_zt.mean(dim=0)
