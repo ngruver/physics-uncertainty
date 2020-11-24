@@ -125,6 +125,8 @@ def make_trainer(uq_type=None, **kwargs):
         return SWAGTrainer(**kwargs)
     elif uq_type == 'deep-ensemble':
         return DeepEnsembleTrainer(**kwargs)
-    else:
+    elif uq_type == 'default':
         kwargs.pop('num_bodies', None)
         return make_det_trainer(**kwargs)
+    else:
+        raise NotImplementedError
