@@ -90,8 +90,8 @@ def compute_metrics(true_zt, true_zt_chaos, pred_zt):
   kl_score = kl_metric(true_zt_chaos, pred_zt)
   wandb.log({'calibration_score': calibration_score, 'kl_score': kl_score})
 
-def evaluate_uq(body, model, n_samples=10, device=None):
-	evald = get_chaotic_eval_dataset(body, n_samples)
+def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
+	evald = get_chaotic_eval_dataset(body, n_samples=n_samples, eps_scale=eps_scale)
 
 	model = model.to(device)
 
@@ -112,6 +112,7 @@ def evaluate_uq(body, model, n_samples=10, device=None):
 def main(**cfg):
   wandb.init(config=cfg)
 
+  eps_scale = cfg.pop('eps_scale', 1e-2)
   cfg['device'] = cfg.get('device', None)
   if cfg['device'] is None:
   	cfg['device'] = 'cuda:0' if torch.cuda.is_available() else None
@@ -124,7 +125,7 @@ def main(**cfg):
 
   cfg['uq_type'] = cfg.get('uq_type', None)
   if cfg['uq_type'] is not None:
-  	evaluate_uq(body, trainer.model, device=cfg['device'])
+  	evaluate_uq(body, trainer.model, eps_scale=eps_scale, device=cfg['device'])
 
   save_dir = os.path.join(wandb.run.dir, 'model.pt')
   torch.save(trainer.model.state_dict(), save_dir)
