@@ -50,11 +50,11 @@ def plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt):
 
 		for b in tqdm(range(nbodies)):
 			chart_x = generate_chart(ts, true_zt[i, :, 0, b, 0],
-															 true_zt_chaos[i, :, :, 0, b, 0],
-															 pred_zt[:, i, :, 0, b, 0], b, 0)
+									 true_zt_chaos[i, :, :, 0, b, 0],
+									 pred_zt[:, i, :, 0, b, 0], b, 0)
 			chart_y = generate_chart(ts, true_zt[i, :, 0, b, 1],
-															 true_zt_chaos[i, :, :, 0, b, 1],
-															 pred_zt[:, i, :, 0, b, 1], b, 1)
+									 true_zt_chaos[i, :, :, 0, b, 1],
+									 pred_zt[:, i, :, 0, b, 1], b, 1)
 			if chart is None:
 				chart = (chart_x & chart_y)
 			else:
