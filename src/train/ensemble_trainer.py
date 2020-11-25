@@ -31,14 +31,15 @@ class SWAGModel(nn.Module):
 
 class SWAGTrainer():
 
-    def __init__(self, **kwargs):
+    def __init__(self, swag_epochs=10, **kwargs):
         self._trainer = make_det_trainer(**kwargs)
         self.model = SWAGModel(self._trainer.model)
+        self.swag_epochs = swag_epochs
 
     def train(self, num_epochs):
         self._trainer.train(num_epochs)
         self._trainer.collect = True
-        self._trainer.train(10)
+        self._trainer.train(self.swag_epochs)
 
 class DeepEnsembleModel(nn.Module):
     
@@ -125,6 +126,8 @@ def make_trainer(uq_type=None, **kwargs):
         return SWAGTrainer(**kwargs)
     elif uq_type == 'deep-ensemble':
         return DeepEnsembleTrainer(**kwargs)
-    else:
+    elif uq_type == 'default':
         kwargs.pop('num_bodies', None)
         return make_det_trainer(**kwargs)
+    else:
+        raise NotImplementedError

@@ -8,8 +8,8 @@ from .rigid_body import RigidBody, BodyGraph, project_onto_constraints
 class ChainPendulum(RigidBody):
     d=2
     dt=.03
-    integration_time=3
-    def __init__(self, links=2, beams=False, m=None, l=None):
+    def __init__(self, links=2, beams=False, m=None, l=None, tau=3.):
+        self.integration_time = tau
         self.body_graph = BodyGraph()#nx.Graph()
         self.arg_string = f"n{links}{'b' if beams else ''}m{m or 'r'}l{l or 'r'}"
         assert not beams, "beams temporarily not supported"
