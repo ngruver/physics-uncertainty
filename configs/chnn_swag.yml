@@ -1,0 +1,24 @@
+method: grid
+parameters:
+  num_bodies:
+    value: 3
+  lr:
+    value: 3e-3
+  tau:
+    value: 10.0
+  C:
+    value: 25
+  num_epochs:
+    value: 50
+  swag_epochs:
+    value: 20
+  eps_scale:
+    value: 1e-2
+  uq_type:
+    value: swag
+program: exps/train_chnn.py
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - ${args}

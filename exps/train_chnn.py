@@ -135,6 +135,12 @@ def compute_metrics(true_zt, true_zt_chaos, pred_zt):
   chaos_likelihood = compute_likelihood(true_zt, true_zt_chaos)
   pred_likelihood = compute_likelihood(true_zt, pred_zt)
 
+  wandb.log({
+    'chaos_lik': chaos_likelihood.sum(-1).mean(),
+    'chaos_lik_std': chaos_likelihood.sum(-1).std(),
+    'pred_lik': pred_likelihood.sum(-1).mean(),
+    'pred_lik_std': pred_likelihood.sum(-1).std(),
+  })
 
 def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
   evald = get_chaotic_eval_dataset(body, n_samples=n_samples, eps_scale=eps_scale)
@@ -153,6 +159,17 @@ def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
 
   compute_metrics(true_zt, true_zt_chaos, pred_zt)
 
+  ## NOTE: Simply dump all data so that we can do offline plotting.
+  data_dump = dict(
+    ts=ts.cpu(),
+    z0_orig=z0_orig.cpu(),
+    true_zt=true_zt.cpu(),
+    true_zt_chaos=true_zt_chaos.cpu(),
+    pred_zt=pred_zt.cpu()
+  )
+  data_dump_file = os.path.join(wandb.run.dir, 'data.pt')
+  torch.save(data_dump, data_dump_file)
+  wandb.save(data_dump_file)
 
 def main(**cfg):
   wandb.init(config=cfg)
