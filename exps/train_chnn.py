@@ -45,10 +45,11 @@ def plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt):
 
 	nsamps = z0_orig.size(0)
 	nbodies = z0_orig.size(-2)
+
 	for i in range(nsamps):
 		chart = None
 
-		for b in tqdm(range(nbodies)):
+		for b in range(nbodies):
 			chart_x = generate_chart(ts, true_zt[i, :, 0, b, 0],
 									 true_zt_chaos[i, :, :, 0, b, 0],
 									 pred_zt[:, i, :, 0, b, 0], b, 0)
