@@ -4,10 +4,14 @@ channels:
 dependencies:
   - python=3.8
   - pip
+  - vega-cli
+  - vega-lite-cli
+  - cairosvg
   - pip:
     - fire
     - wandb
     - altair
+    - altair_saver
     - seaborn
     - jupyterlab
     - ipywidgets
