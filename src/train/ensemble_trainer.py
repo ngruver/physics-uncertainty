@@ -31,7 +31,7 @@ class SWAGModel(nn.Module):
 
 class SWAGTrainer():
 
-    def __init__(self, swag_epochs=10, **kwargs):
+    def __init__(self, swag_epochs=20, **kwargs):
         self._trainer = make_det_trainer(**kwargs)
         self.model = SWAGModel(self._trainer.model)
         self.swag_epochs = swag_epochs
@@ -107,18 +107,60 @@ class DeepEnsembleTrainer():
         #     p.map(_submit, range(self.ensemble_size))
 
         # wandb_dir = os.path.join(os.environ["LOGDIR"], "wandb")
-        # sweep_dir = os.path.join(wandb_dir, "sweep-{}".format(os.environ['WANDB_SWEEP_ID']))
+        #sweep_dir = os.path.join(wandb_dir, "sweep-{}".format(os.environ['WANDB_SWEEP_ID']))
+        # wandb_dir = "/misc/vlgscratch4/WilsonGroup/ngruver/logs/wandb"
+        # sweep_dir = "/misc/vlgscratch4/WilsonGroup/ngruver/logs/wandb/sweep-ovhpc8rp"
         # run_names = [re.match("config-(\w+).yaml",f).groups()[0] for f in os.listdir(sweep_dir)]
         # model_dirs = [glob.glob(os.path.join(wandb_dir,"*-{}".format(n)))[0] for n in run_names]
         # model_paths = [os.path.join(d, "files", "model.pt") for d in model_dirs]
 
         # for model_path in model_paths:
         #     model = torch.load(model_path)
+        #     model = {k.partition('model.')[2]: model[k] for k in model}
         #     self.ensemble.append(model)
 
         for trainer in self._trainers:
             trainer.train(num_epochs)
             self.ensemble.append(trainer.model.state_dict())
+
+class DeepEnsembleModel(nn.Module):
+    
+    def __init__(self, model, ensemble, **kwargs):
+        super().__init__(**kwargs)
+        self.model = model
+        self.ensemble = ensemble
+
+    def forward(self, z, t, n_samples=10):
+        pred_zt = []
+        for state_dict in self.ensemble:
+            self.model.load_state_dict(state_dict)
+            self.model.eval()
+            with torch.no_grad():
+                zt_pred = self.model.integrate(z, t, method='rk4')
+            pred_zt.append(zt_pred)
+        pred_zt = torch.stack(pred_zt, dim=0)
+        return pred_zt
+
+class DeterministicWrapper(nn.Module):
+
+    def __init__(self, model, **kwargs):
+        super().__init__(**kwargs)
+        self.model = model
+
+    def forward(self, z, t, n_samples=10):
+        self.model.eval()
+        with torch.no_grad():
+            zt_pred = self.model.integrate(z, t, method='rk4')
+        return zt_pred.unsqueeze(0)
+
+class DeterministicTrainer():
+
+    def __init__(self, **kwargs):
+        self._trainer = make_det_trainer(**kwargs)
+        self.model = DeterministicWrapper(self._trainer.model)
+
+    def train(self, num_epochs):
+        self._trainer.train(num_epochs)
 
 def make_trainer(uq_type=None, **kwargs):
     if uq_type == 'swag':
@@ -126,8 +168,8 @@ def make_trainer(uq_type=None, **kwargs):
         return SWAGTrainer(**kwargs)
     elif uq_type == 'deep-ensemble':
         return DeepEnsembleTrainer(**kwargs)
-    elif uq_type == 'default':
+    elif uq_type is None:
         kwargs.pop('num_bodies', None)
-        return make_det_trainer(**kwargs)
+        return DeterministicTrainer(**kwargs)
     else:
         raise NotImplementedError

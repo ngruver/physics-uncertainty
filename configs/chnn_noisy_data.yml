@@ -18,11 +18,11 @@ parameters:
   C:
     value: 25 
   num_epochs:
-    value: 25
+    value: 50
   uq_type:
-    value: "swag"
-  run_eval:
-    value: False
+    value: "deep-ensemble"
+  noise_rate:
+    values: [0, 0.01, 0.1, 1.0]
 program: exps/train_chnn.py
 command:
   - ${env}

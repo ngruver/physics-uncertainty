@@ -113,18 +113,23 @@ class IntegratedDynamicsTrainer(Trainer):
 
 def make_trainer(*,
     network=HNN, net_cfg={}, device=None, root_dir=None,
-    dataset=RigidBodyDataset, body=ChainPendulum(3), tau=3, n_train=800, regen=False, C=5,
-    lr=3e-3, bs=200, num_epochs=100, trainer_config={}, net_seed=None):
+    dataset=RigidBodyDataset, body=ChainPendulum(3), tau=3, n_systems=1000, regen=False, C=5,
+    lr=3e-3, bs=200, num_epochs=100, trainer_config={}, net_seed=None, n_subsample=None,
+    noise_rate=None):
     
     # Create Training set and model
     if isinstance(network, str):
         network = eval(network)
     angular = not issubclass(network,CH)
-    splits = {"train": n_train, "test": 200}
+
+    if n_subsample is None:
+        n_subsample = n_systems
+    splits = {"train": int(0.8 * n_subsample), "test": int(0.2 * n_subsample)}
     body.integration_time = tau
     with FixedNumpySeed(0):
-        dataset = dataset(root_dir=root_dir, n_systems=n_train+200, regen=regen,
-                          chunk_len=C, body=body, angular_coords=angular)
+        dataset = dataset(root_dir=root_dir, n_systems=n_systems, regen=regen,
+                          chunk_len=C, body=body, angular_coords=angular,
+                          n_subsample=n_subsample, noise_rate=noise_rate)
         datasets = split_dataset(dataset, splits)
 
     dof_ndim = dataset.body.D if angular else dataset.body.d

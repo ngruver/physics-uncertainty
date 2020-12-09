@@ -55,6 +55,7 @@ class RigidBodyDataset(Dataset):
         seed=0,
         mode="train",
         n_subsample=None,
+        noise_rate=None,
     ):
         super().__init__()
         with FixedSeedAll(seed):
@@ -72,18 +73,28 @@ class RigidBodyDataset(Dataset):
                 ts, zs = self.generate_trajectory_data(n_systems)
                 os.makedirs(root_dir, exist_ok=True)
                 torch.save((ts, zs), filename)
+    
             Ts, Zs = self.chunk_training_data(ts, zs, chunk_len)
 
             if n_subsample is not None:
                 Ts, Zs = Ts[:n_subsample], Zs[:n_subsample]
+    
             self.Ts, self.Zs = Ts.float(), Zs.float()
+            
             self.seed = seed
+    
             if angular_coords:
                 N, T = self.Zs.shape[:2]
                 flat_Zs = self.Zs.reshape(N * T, *self.Zs.shape[2:])
                 self.Zs = self.body.global2bodyCoords(flat_Zs.double())
                 print(rel_err(self.body.body2globalCoords(self.Zs), flat_Zs))
                 self.Zs = self.Zs.reshape(N, T, *self.Zs.shape[1:]).float()
+
+            if (noise_rate is not None) and noise_rate > 0:
+                z_var = torch.var(self.Zs)
+                noise_var = noise_rate * z_var 
+                noise = noise_rate * z_var * torch.randn_like(self.Zs)
+                self.Zs += noise
 
     def __len__(self):
         return self.Zs.shape[0]
@@ -153,7 +164,6 @@ class RigidBodyDataset(Dataset):
     def sample_system(self, N):
         """"""
         return self.body.sample_initial_conditions(N)
-
 
 def get_chaotic_eval_dataset(body, n_init=5, n_samples=10, eps_scale=1e-3, tau=10.0):
     eval_dir = os.path.join(os.environ['DATADIR'], "chnn")

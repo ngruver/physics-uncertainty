@@ -10,7 +10,7 @@ project: physics-uncertainty-exps
 method: grid
 parameters:
   num_bodies:
-    value: 3
+    value: 2
   lr:
     value: 3e-3
   tau:
@@ -19,10 +19,10 @@ parameters:
     value: 25 
   num_epochs:
     value: 25
-  uq_type:
-    value: "swag"
-  run_eval:
-    value: False
+  # uq_type:
+  #   value: "deep-ensemble"
+  n_subsample:
+    values: [10, 50, 100, 1000]
 program: exps/train_chnn.py
 command:
   - ${env}
