@@ -16,6 +16,10 @@ parameters:
     value: 1e-2
   uq_type:
     value: swag
+  noise_rate:
+    values: [0.0, 0.01, 0.1, 0.5, 1.0, 2.0]
+  # n_subsample:
+  #   value: 1000
 program: exps/train_chnn.py
 command:
   - ${env}

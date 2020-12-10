@@ -60,10 +60,10 @@ class RigidBodyDataset(Dataset):
         super().__init__()
         with FixedSeedAll(seed):
             self.mode = mode
-            root_dir = root_dir or os.path.join(os.environ['DATADIR'], 'ODEDynamics', str(self.__class__))
+            root_dir = root_dir or os.path.join(os.environ['DATADIR'], 'ODEDynamics', self.__class__.__name__)
             self.body = body
             filename = os.path.join(
-                root_dir, f"trajectories_{body}_N{n_systems}_{mode}.pz"
+                root_dir, f"trajectories_{body.__class__.__name__}_N{n_systems}_{mode}.pz"
             )
             if os.path.exists(filename) and not regen:
                 ts, zs = torch.load(filename)
