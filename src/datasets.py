@@ -60,9 +60,7 @@ class RigidBodyDataset(Dataset):
         super().__init__()
         with FixedSeedAll(seed):
             self.mode = mode
-            root_dir = root_dir or os.path.expanduser(
-                f"~/datasets/ODEDynamics/{self.__class__}/"
-            )
+            root_dir = root_dir or os.path.join(os.environ['DATADIR'], 'ODEDynamics', str(self.__class__))
             self.body = body
             filename = os.path.join(
                 root_dir, f"trajectories_{body}_N{n_systems}_{mode}.pz"
