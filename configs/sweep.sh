@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-#SBATCH --job-name=CHNN-SWAG
+#SBATCH --job-name=CHNN-UNC
 ##SBATCH --output=
 ##SBATCH --error=
 #SBATCH --nodes=1

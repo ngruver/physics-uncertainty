@@ -67,7 +67,8 @@ def generate_err_chart(ts, true_zt, true_zt_chaos, pred_zt):
 def plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt):
   alt.data_transformers.disable_max_rows()
 
-  nsamps = z0_orig.size(0)
+  ## Only plot 5 trajectories for viz.
+  nsamps = min(z0_orig.size(0), 5)
   nbodies = z0_orig.size(-2)
   for i in range(nsamps):
     trace_chart = None
@@ -199,7 +200,7 @@ def compute_metrics(ts, true_zt, true_zt_chaos, pred_zt):
   })
 
 def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
-  evald = get_chaotic_eval_dataset(body, n_samples=n_samples, eps_scale=eps_scale)
+  evald = get_chaotic_eval_dataset(body, n_init=25, n_samples=n_samples, eps_scale=eps_scale)
 
   model = model.to(device)
 
