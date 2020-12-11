@@ -212,10 +212,6 @@ def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
 
   pred_zt = model(z0_orig, ts, n_samples=n_samples)
 
-  plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt)
-
-  compute_metrics(ts, true_zt, true_zt_chaos, pred_zt)
-
   ## NOTE: Simply dump all data so that we can do offline plotting.
   data_dump = dict(
     ts=ts.cpu(),
@@ -227,6 +223,10 @@ def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
   data_dump_file = os.path.join(wandb.run.dir, 'data.pt')
   torch.save(data_dump, data_dump_file)
   wandb.save(data_dump_file)
+
+  plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt)
+
+  compute_metrics(ts, true_zt, true_zt_chaos, pred_zt)
 
 def main(**cfg):
   wandb.init(config=cfg)
