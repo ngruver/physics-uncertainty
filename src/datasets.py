@@ -88,11 +88,13 @@ class RigidBodyDataset(Dataset):
                 print(rel_err(self.body.body2globalCoords(self.Zs), flat_Zs))
                 self.Zs = self.Zs.reshape(N, T, *self.Zs.shape[1:]).float()
 
-            if (noise_rate is not None) and noise_rate > 0:
-                z_var = torch.var(self.Zs)
-                noise_var = noise_rate * z_var 
-                noise = noise_rate * z_var * torch.randn_like(self.Zs)
-                self.Zs += noise
+            if isinstance(noise_rate, float):
+                self.Zs = self.Zs + noise_rate * torch.randn_like(self.Zs)
+            # if (noise_rate is not None) and noise_rate > 0:
+            #     z_var = torch.var(self.Zs)
+            #     noise_var = noise_rate * z_var 
+            #     noise = noise_rate * z_var * torch.randn_like(self.Zs)
+            #     self.Zs += noise
 
     def __len__(self):
         return self.Zs.shape[0]
