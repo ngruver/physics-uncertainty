@@ -75,10 +75,10 @@ def plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt):
 
     for b in tqdm(range(nbodies)):
       trace_chart_x = generate_trace_chart(ts, true_zt[i, :, 0, b, 0],
-                                     true_zt_chaos[i, :, :, 0, b, 0],
+                                     true_zt_chaos[:, i, :, 0, b, 0],
                                      pred_zt[:, i, :, 0, b, 0], b, 0)
       trace_chart_y = generate_trace_chart(ts, true_zt[i, :, 0, b, 1],
-                                     true_zt_chaos[i, :, :, 0, b, 1],
+                                     true_zt_chaos[:, i, :, 0, b, 1],
                                      pred_zt[:, i, :, 0, b, 1], b, 1)
       if trace_chart is None:
         trace_chart = (trace_chart_x & trace_chart_y)
@@ -171,13 +171,11 @@ def compute_likelihood(ref, pred):
 
 def compute_geom_mean(ts, loss):
   t_range = ts.max() - ts.min()
-  return torch.trapz((loss + 1e-8).log(), ts).exp() / t_range
+  return torch.trapz((loss + 1e-8).log(), ts).div(t_range).exp()
 
 def compute_metrics(ts, true_zt, true_zt_chaos, pred_zt):
   # calibration_score = calibration_metric(true_zt, pred_zt)
   # kl_score = kl_metric(true_zt_chaos, pred_zt)
-
-  true_zt_chaos = true_zt_chaos.permute(1, 0, 2, 3, 4, 5)
 
   chaos_rel_err = compute_rel_error(true_zt, true_zt_chaos.mean(0))
   pred_rel_err = compute_rel_error(true_zt, pred_zt.mean(0))
@@ -208,8 +206,6 @@ def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
   z0_orig = evald['z0_orig'].to(device)
   true_zt = evald['true_zt'].to(device)
   true_zt_chaos = evald['true_zt_chaos'].to(device)
-  true_zt_chaos = true_zt_chaos[:n_samples]
-
   pred_zt = model(z0_orig, ts, n_samples=n_samples)
 
   ## NOTE: Simply dump all data so that we can do offline plotting.

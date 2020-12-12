@@ -170,7 +170,7 @@ def get_chaotic_eval_dataset(body, n_init=5, n_samples=10, eps_scale=1e-3, tau=1
     if not os.path.exists(eval_dir):
         os.mkdir(eval_dir)
 
-    eval_path = os.path.join(eval_dir, "{}_body_eval_dataset.pt".format(body.n))
+    eval_path = os.path.join(eval_dir, f"{body.n}_body_eval_Ninit-{n_init}_Ns-{n_samples}.pt")
     if os.path.exists(eval_path):
         return torch.load(eval_path)
 
@@ -188,6 +188,7 @@ def get_chaotic_eval_dataset(body, n_init=5, n_samples=10, eps_scale=1e-3, tau=1
     true_zt = body.integrate(z0_orig, ts, method='rk4')
     true_zt_chaos = body.integrate(z0, ts, method='rk4')
     true_zt_chaos = true_zt_chaos.reshape(n_init, n_samples, *np.shape(true_zt_chaos)[1:])
+    true_zt_chaos = true_zt_chaos.permute(1, 0, 2, 3, 4, 5)
 
     eval_dataset = {
         "ts": ts,
