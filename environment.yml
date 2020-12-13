@@ -4,9 +4,9 @@ channels:
 dependencies:
   - python=3.8
   - pip
-  - vega-cli
-  - vega-lite-cli
-  - cairosvg
+  # - vega-cli
+  # - vega-lite-cli
+  # - cairosvg
   - pip:
     - fire
     - wandb
@@ -22,3 +22,4 @@ dependencies:
     - gpytorch
     - torchdiffeq
     - "git+https://github.com/mfinzi/olive-oil-ml#egg=olive-oil-ml"
+    - pathos

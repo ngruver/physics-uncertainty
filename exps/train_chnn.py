@@ -67,17 +67,18 @@ def generate_err_chart(ts, true_zt, true_zt_chaos, pred_zt):
 def plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt):
   alt.data_transformers.disable_max_rows()
 
-  nsamps = z0_orig.size(0)
+  ## Only plot 5 trajectories for viz.
+  nsamps = min(z0_orig.size(0), 5)
   nbodies = z0_orig.size(-2)
   for i in range(nsamps):
     trace_chart = None
 
     for b in tqdm(range(nbodies)):
       trace_chart_x = generate_trace_chart(ts, true_zt[i, :, 0, b, 0],
-                                     true_zt_chaos[i, :, :, 0, b, 0],
+                                     true_zt_chaos[:, i, :, 0, b, 0],
                                      pred_zt[:, i, :, 0, b, 0], b, 0)
       trace_chart_y = generate_trace_chart(ts, true_zt[i, :, 0, b, 1],
-                                     true_zt_chaos[i, :, :, 0, b, 1],
+                                     true_zt_chaos[:, i, :, 0, b, 1],
                                      pred_zt[:, i, :, 0, b, 1], b, 1)
       if trace_chart is None:
         trace_chart = (trace_chart_x & trace_chart_y)
@@ -173,13 +174,11 @@ def compute_geom_mean(ts, loss):
   loss = loss[:,:,:n//3]
   ts = ts[:n//3]
   t_range = ts.max() - ts.min()
-  return (torch.trapz((loss + 1e-8).log(), ts) / t_range).exp()
+  return torch.trapz((loss + 1e-8).log(), ts).div(t_range).exp()
 
 def compute_metrics(ts, true_zt, true_zt_chaos, pred_zt):
   # calibration_score = calibration_metric(true_zt, pred_zt)
   # kl_score = kl_metric(true_zt_chaos, pred_zt)
-
-  true_zt_chaos = true_zt_chaos.permute(1, 0, 2, 3, 4, 5)
 
   chaos_rel_err = compute_rel_error(true_zt, true_zt_chaos.mean(0))
   pred_rel_err = compute_rel_error(true_zt, pred_zt.mean(0))
@@ -201,8 +200,8 @@ def compute_metrics(ts, true_zt, true_zt_chaos, pred_zt):
     'pred_geom_mean_std': pred_geom_mean.std(),
   })
 
-def evaluate_uq(uq_type, body, model, eps_scale=1e-2, n_samples=10, device=None):
-  evald = get_chaotic_eval_dataset(body, n_samples=n_samples, eps_scale=eps_scale)
+def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
+  evald = get_chaotic_eval_dataset(body, n_init=25, n_samples=n_samples, eps_scale=eps_scale)
 
   model = model.to(device)
 
@@ -217,10 +216,6 @@ def evaluate_uq(uq_type, body, model, eps_scale=1e-2, n_samples=10, device=None)
   else:
     pred_zt = model(z0_orig, ts, n_samples=n_samples)
   
-  plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt)
-
-  compute_metrics(ts, true_zt, true_zt_chaos, pred_zt)
-
   ## NOTE: Simply dump all data so that we can do offline plotting.
   data_dump = dict(
     ts=ts.cpu(),
@@ -236,6 +231,10 @@ def evaluate_uq(uq_type, body, model, eps_scale=1e-2, n_samples=10, device=None)
   print("Dumping to {}...".format(data_dump_file))
   torch.save(data_dump, data_dump_file)
   wandb.save(data_dump_file)
+
+  plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt)
+
+  compute_metrics(ts, true_zt, true_zt_chaos, pred_zt)
 
 def main(**cfg):
   wandb.init(config=cfg)
