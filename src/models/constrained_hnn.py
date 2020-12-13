@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import torch
 import torch.nn as nn
@@ -223,3 +224,41 @@ class CHNN(CH):
     def sample(self):
         super().collect_model()
         self.swag_potential_net.sample()
+
+class AleatoricCHNN(CH):
+    def __init__(self,G,
+        dof_ndim: Optional[int] = None,
+        angular_dims: Union[Tuple, bool] = tuple(),
+        hidden_size: int = 256,
+        num_layers=3,
+        wgrad=True,
+        **kwargs
+    ):
+        super().__init__(G=G, dof_ndim=dof_ndim, angular_dims=angular_dims, wgrad=wgrad, **kwargs
+        )
+        n = len(G.nodes())
+        chs = [n * self.dof_ndim] + num_layers * [hidden_size]
+        
+        layers = \
+            [FCtanh(chs[i], chs[i + 1], zero_bias=False, orthogonal_init=True)
+                for i in range(num_layers)] + \
+            [Linear(chs[-1], 1 + 2 * n * dof_ndim, zero_bias=False, orthogonal_init=True)] 
+
+        self.output_net = nn.Sequential(*layers)
+
+        print(self.output_net)
+
+    def compute_V(self, x):
+        """ Input is a canonical position variable and the system parameters,
+        Args:
+            x: (N x n_dof x dof_ndim) sized Tensor representing the position in
+            Cartesian coordinates
+        Returns: a length N Tensor representing the potential energy
+        """
+        assert x.ndim == 3
+        out =  self.output_net(x.reshape(x.size(0), -1))
+        return out[:,0]
+
+    def get_covariance(self, x):
+        out =  self.output_net(x.reshape(x.size(0), -1))
+        return out[:,1:].exp()

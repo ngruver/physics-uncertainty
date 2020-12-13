@@ -8,7 +8,7 @@ from tqdm.auto import tqdm
 import torch
 
 from src.train.ensemble_trainer import make_trainer
-from src.models import CHNN
+from src.models import CHNN, AleatoricCHNN
 from src.systems.chain_pendulum import ChainPendulum
 from src.datasets import get_chaotic_eval_dataset
 
@@ -46,8 +46,8 @@ def generate_err_chart(ts, true_zt, true_zt_chaos, pred_zt):
   pred_color = 'red'
   chaos_color = 'blue'
 
-  chaos_mrse = compute_mrse(true_zt, true_zt_chaos.mean(dim=0)).cpu().numpy()
-  pred_mrse = compute_mrse(true_zt, pred_zt.mean(dim=0)).cpu().numpy()
+  chaos_mrse = compute_rel_error(true_zt, true_zt_chaos.mean(dim=0)).squeeze(0).log().cpu().numpy()
+  pred_mrse = compute_rel_error(true_zt, pred_zt.mean(dim=0)).squeeze(0).log().cpu().numpy()
 
   # pred_mean = swag_mrse.mean(0).cpu().numpy()
   # pred_std = swag_mrse.std(0).cpu().numpy()
@@ -169,8 +169,11 @@ def compute_likelihood(ref, pred):
   return log_prob
 
 def compute_geom_mean(ts, loss):
+  n = ts.size(-1)
+  loss = loss[:,:,:n//3]
+  ts = ts[:n//3]
   t_range = ts.max() - ts.min()
-  return torch.trapz((loss + 1e-8).log(), ts).exp() / t_range
+  return (torch.trapz((loss + 1e-8).log(), ts) / t_range).exp()
 
 def compute_metrics(ts, true_zt, true_zt_chaos, pred_zt):
   # calibration_score = calibration_metric(true_zt, pred_zt)
@@ -198,7 +201,7 @@ def compute_metrics(ts, true_zt, true_zt_chaos, pred_zt):
     'pred_geom_mean_std': pred_geom_mean.std(),
   })
 
-def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
+def evaluate_uq(uq_type, body, model, eps_scale=1e-2, n_samples=10, device=None):
   evald = get_chaotic_eval_dataset(body, n_samples=n_samples, eps_scale=eps_scale)
 
   model = model.to(device)
@@ -209,8 +212,11 @@ def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
   true_zt_chaos = evald['true_zt_chaos'].to(device)
   true_zt_chaos = true_zt_chaos[:n_samples]
 
-  pred_zt = model(z0_orig, ts, n_samples=n_samples)
-
+  if uq_type == 'output-uncertainty':
+    pred_zt, var_zt = model(z0_orig, ts, n_samples=n_samples)
+  else:
+    pred_zt = model(z0_orig, ts, n_samples=n_samples)
+  
   plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt)
 
   compute_metrics(ts, true_zt, true_zt_chaos, pred_zt)
@@ -223,7 +229,11 @@ def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
     true_zt_chaos=true_zt_chaos.cpu(),
     pred_zt=pred_zt.cpu()
   )
+  if uq_type == 'output-uncertainty':
+    data_dump['var_zt'] = var_zt.cpu()
+
   data_dump_file = os.path.join(wandb.run.dir, 'data.pt')
+  print("Dumping to {}...".format(data_dump_file))
   torch.save(data_dump, data_dump_file)
   wandb.save(data_dump_file)
 
@@ -239,7 +249,7 @@ def main(**cfg):
 
   body = ChainPendulum(cfg.get('num_bodies', 3))
   trainer = make_trainer(**cfg,
-    network=CHNN, body=body, trainer_config=dict(log_dir=wandb.run.dir))
+    network=AleatoricCHNN, body=body, trainer_config=dict(log_dir=wandb.run.dir))
 
   trainer.train(cfg.get('num_epochs', 10))
 
@@ -249,7 +259,7 @@ def main(**cfg):
 
   cfg['uq_type'] = cfg.get('uq_type', None)
   if run_eval:# and (cfg['uq_type'] is not None):
-    evaluate_uq(body, trainer.model, eps_scale=eps_scale, device=cfg['device'])
+    evaluate_uq(cfg['uq_type'], body, trainer.model, eps_scale=eps_scale, device=cfg['device'])
 
 if __name__ == "__main__":
   os.environ['WANDB_MODE'] = os.environ.get('WANDB_MODE', default='dryrun')

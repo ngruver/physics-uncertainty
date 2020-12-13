@@ -10,7 +10,7 @@ project: physics-uncertainty-exps
 method: grid
 parameters:
   num_bodies:
-    value: 3
+    value: 2
   lr:
     value: 3e-3
   tau:

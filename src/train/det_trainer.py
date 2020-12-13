@@ -53,9 +53,31 @@ class IntegratedDynamicsTrainer(Trainer):
         self.num_mbs += 1
         return (pred_zs - true_zs).abs().mean()
 
+    def nll_loss(self, minibatch):
+        (z0, ts), true_zs = minibatch
+        
+        if not self.constrained:
+            z0 = z0.transpose(1,2)
+            z0 = z0.reshape(-1,*z0.size()[2:])
+            true_zs = true_zs.transpose(3,2).transpose(2,1)
+            true_zs = true_zs.reshape(-1,*true_zs.size()[2:])
+
+        pred_zs = self.model.integrate(z0, ts[0], tol=self.hypers["tol"])
+        pred_pos_batched = pred_zs[:,:,0,:,:].reshape(-1, *pred_zs.shape[3:])
+        covariance = self.model.get_covariance(pred_pos_batched)
+
+        mu = pred_zs.reshape(pred_zs.size(0)*pred_zs.size(1), -1)
+        dist = torch.distributions.MultivariateNormal(mu, covariance.diag_embed())
+        target = true_zs.reshape(true_zs.size(0)*true_zs.size(1), -1)
+        nll = -1 * dist.log_prob(target).mean()
+
+        self.num_mbs += 1
+        return nll
+
+
     def step(self, minibatch):
         self.optimizer.zero_grad()
-        loss = self.loss(minibatch)
+        loss = self.nll_loss(minibatch)
         loss.backward()
         self.optimizer.step()
         
@@ -113,7 +135,7 @@ class IntegratedDynamicsTrainer(Trainer):
 
 def make_trainer(*,
     network=HNN, net_cfg={}, device=None, root_dir=None,
-    dataset=RigidBodyDataset, body=ChainPendulum(3), tau=3, n_systems=1000, regen=False, C=5,
+    dataset=RigidBodyDataset, body=ChainPendulum(3), tau=3, n_systems=10000, regen=False, C=5,
     lr=3e-3, bs=200, num_epochs=100, trainer_config={}, net_seed=None, n_subsample=None,
     noise_rate=None):
     

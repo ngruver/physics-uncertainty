@@ -141,6 +141,29 @@ class DeepEnsembleModel(nn.Module):
         pred_zt = torch.stack(pred_zt, dim=0)
         return pred_zt
 
+class AleotoricWrapper(nn.Module):
+
+    def __init__(self, model, **kwargs):
+        super().__init__(**kwargs)
+        self.model = model
+
+    def forward(self, z, t, n_samples=10):
+        self.model.eval()
+        with torch.no_grad():
+            zt_pred = self.model.integrate(z, t, method='rk4')
+        batched = zt_pred[:,:,0,:,:].reshape(-1, *zt_pred.shape[3:])
+        var = self.model.get_covariance(batched).reshape(*zt_pred.shape)
+        return zt_pred.unsqueeze(0), var
+
+class AleotoricTrainer():
+
+    def __init__(self, **kwargs):
+        self._trainer = make_det_trainer(**kwargs)
+        self.model = AleotoricWrapper(self._trainer.model)
+
+    def train(self, num_epochs):
+        self._trainer.train(num_epochs) 
+
 class DeterministicWrapper(nn.Module):
 
     def __init__(self, model, **kwargs):
@@ -168,7 +191,10 @@ def make_trainer(uq_type=None, **kwargs):
         return SWAGTrainer(**kwargs)
     elif uq_type == 'deep-ensemble':
         return DeepEnsembleTrainer(**kwargs)
-    elif uq_type is None:
+    elif uq_type == 'output-uncertainty':
+        kwargs.pop('num_bodies', None)
+        return AleotoricTrainer(**kwargs)
+    elif (uq_type == 'det') or (uq_type is None):
         kwargs.pop('num_bodies', None)
         return DeterministicTrainer(**kwargs)
     else:

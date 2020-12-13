@@ -8,6 +8,7 @@
 #SBATCH --mem=64G
 #SBATCH --time=16:00:00
 #SBATCH --gres=gpu:1
+#SBATCH --constraint=gpu_12gb
 
 if [[ -z "${WANDB_SWEEP_ID}" ]]; then
   echo "Missing WANDB_SWEEP_ID"
