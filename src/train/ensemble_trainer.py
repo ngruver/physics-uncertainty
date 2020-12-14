@@ -151,14 +151,15 @@ class AleotoricWrapper(nn.Module):
         self.model.eval()
         with torch.no_grad():
             zt_pred = self.model.integrate(z, t, method='rk4')
-        batched = zt_pred[:,:,0,:,:].reshape(-1, *zt_pred.shape[3:])
-        var = self.model.get_covariance(batched).reshape(*zt_pred.shape)
-        return zt_pred.unsqueeze(0), var
+            batched = zt_pred[:,:,0,:,:].reshape(-1, *zt_pred.shape[3:])
+            var = self.model.get_covariance(batched).reshape(*zt_pred.shape)
+        return zt_pred, var
 
 class AleotoricTrainer():
 
     def __init__(self, **kwargs):
         self._trainer = make_det_trainer(**kwargs)
+        self._trainer.prob_loss = True
         self.model = AleotoricWrapper(self._trainer.model)
 
     def train(self, num_epochs):
@@ -174,7 +175,7 @@ class DeterministicWrapper(nn.Module):
         self.model.eval()
         with torch.no_grad():
             zt_pred = self.model.integrate(z, t, method='rk4')
-        return zt_pred.unsqueeze(0)
+        return zt_pred
 
 class DeterministicTrainer():
 

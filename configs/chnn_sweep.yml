@@ -18,11 +18,9 @@ parameters:
   C:
     value: 25 
   num_epochs:
-    value: 25
+    value: 50
   uq_type:
-    value: "swag"
-  run_eval:
-    value: False
+    values: ["swag", "deep-ensemble", "output-uncertainty"]
 program: exps/train_chnn.py
 command:
   - ${env}

@@ -200,8 +200,9 @@ def compute_metrics(ts, true_zt, true_zt_chaos, pred_zt):
     'pred_geom_mean_std': pred_geom_mean.std(),
   })
 
-def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
-  evald = get_chaotic_eval_dataset(body, n_init=25, n_samples=n_samples, eps_scale=eps_scale)
+def evaluate_uq(uq_type, body, model, eps_scale=1e-2, n_samples=10, device=None):
+  n_init = 25
+  evald = get_chaotic_eval_dataset(body, n_init=n_init, n_samples=n_samples, eps_scale=eps_scale)
 
   model = model.to(device)
 
@@ -211,18 +212,30 @@ def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
   true_zt_chaos = evald['true_zt_chaos'].to(device)
   true_zt_chaos = true_zt_chaos[:n_samples]
 
+  z0 = torch.cat([z0_orig.unsqueeze(0), true_zt_chaos[:,:,0,:,:,:]], 0)
+  z0 = z0.reshape((n_samples + 1)*n_init, *z0.shape[2:])
+
   if uq_type == 'output-uncertainty':
-    pred_zt, var_zt = model(z0_orig, ts, n_samples=n_samples)
+    pred_zt, var_zt = model(z0, ts, n_samples=n_samples)
+    var_zt = var_zt.reshape((n_samples + 1), n_init, *var_zt.shape[1:])[0]
   else:
-    pred_zt = model(z0_orig, ts, n_samples=n_samples)
-  
+    pred_zt = model(z0, ts, n_samples=n_samples)
+
+  if uq_type == 'swag' or uq_type == 'deep-ensemble':
+    pred_zt = pred_zt.reshape(n_samples, (n_samples + 1), n_init, *pred_zt.shape[2:])
+    pred_zt, pred_zt_chaos = pred_zt[:,0], pred_zt[:,1:].mean(0)
+  else:
+    pred_zt = pred_zt.reshape((n_samples + 1), n_init, *pred_zt.shape[1:])
+    pred_zt, pred_zt_chaos = pred_zt[:1], pred_zt[1:]
+
   ## NOTE: Simply dump all data so that we can do offline plotting.
   data_dump = dict(
     ts=ts.cpu(),
     z0_orig=z0_orig.cpu(),
     true_zt=true_zt.cpu(),
     true_zt_chaos=true_zt_chaos.cpu(),
-    pred_zt=pred_zt.cpu()
+    pred_zt=pred_zt.cpu(),
+    pred_zt_chaos=pred_zt_chaos.cpu()
   )
   if uq_type == 'output-uncertainty':
     data_dump['var_zt'] = var_zt.cpu()
@@ -247,8 +260,14 @@ def main(**cfg):
     cfg['device'] = 'cuda:0' if torch.cuda.is_available() else None
 
   body = ChainPendulum(cfg.get('num_bodies', 3))
+  cfg['uq_type'] = cfg.get('uq_type', None)
+  if cfg['uq_type'] == 'output-uncertainty':
+    network = AleatoricCHNN
+  else:
+    network = CHNN
+
   trainer = make_trainer(**cfg,
-    network=AleatoricCHNN, body=body, trainer_config=dict(log_dir=wandb.run.dir))
+      network=network, body=body, trainer_config=dict(log_dir=wandb.run.dir))
 
   trainer.train(cfg.get('num_epochs', 10))
 

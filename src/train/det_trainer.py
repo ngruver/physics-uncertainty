@@ -37,6 +37,7 @@ class IntegratedDynamicsTrainer(Trainer):
         self.num_mbs = 0
         self.constrained = constrained
         self.collect = False
+        self.prob_loss = False
 
     def loss(self, minibatch):
         """ Standard cross-entropy loss """
@@ -63,8 +64,8 @@ class IntegratedDynamicsTrainer(Trainer):
             true_zs = true_zs.reshape(-1,*true_zs.size()[2:])
 
         pred_zs = self.model.integrate(z0, ts[0], tol=self.hypers["tol"])
-        pred_pos_batched = pred_zs[:,:,0,:,:].reshape(-1, *pred_zs.shape[3:])
-        covariance = self.model.get_covariance(pred_pos_batched)
+        batched = true_zs[:,:,0,:,:].reshape(-1, *true_zs.shape[3:])
+        covariance = self.model.get_covariance(batched)
 
         mu = pred_zs.reshape(pred_zs.size(0)*pred_zs.size(1), -1)
         dist = torch.distributions.MultivariateNormal(mu, covariance.diag_embed())
@@ -77,7 +78,10 @@ class IntegratedDynamicsTrainer(Trainer):
 
     def step(self, minibatch):
         self.optimizer.zero_grad()
-        loss = self.nll_loss(minibatch)
+        if self.prob_loss:
+            loss = self.nll_loss(minibatch)
+        else:
+            loss = self.loss(minibatch)
         loss.backward()
         self.optimizer.step()
         
