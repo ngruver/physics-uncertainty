@@ -249,7 +249,8 @@ def evaluate_uq(uq_type, body, model, eps_scale=1e-2, n_samples=10, device=None)
 
   compute_metrics(ts, true_zt, true_zt_chaos, pred_zt)
 
-def main(**cfg):
+def main(jid=None, **cfg):
+  ## jid is a dummy argument.
   wandb.init(config=cfg)
 
   run_eval = cfg.pop('run_eval', True)
