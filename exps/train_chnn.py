@@ -4,12 +4,15 @@ import wandb
 import altair as alt
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 import torch
 
 from src.train.ensemble_trainer import make_trainer
-from src.models import CHNN, AleatoricCHNN
+from src.models import HNN, CHNN, AleatoricCHNN, CNFCHNN
 from src.systems.chain_pendulum import ChainPendulum
+from src.systems.coupled_pendulum import CoupledPendulum
+from src.systems.magnet_pendulum import MagnetPendulum
 from src.datasets import get_chaotic_eval_dataset
 
 def generate_trace_chart(ts, true_zt, true_zt_chaos, pred_zt, body_idx, dof_idx):
@@ -200,8 +203,9 @@ def compute_metrics(ts, true_zt, true_zt_chaos, pred_zt):
     'pred_geom_mean_std': pred_geom_mean.std(),
   })
 
-def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
-  evald = get_chaotic_eval_dataset(body, n_init=25, n_samples=n_samples, eps_scale=eps_scale)
+def evaluate_uq(uq_type, body, model, eps_scale=1e-2, n_samples=5, device=None):
+  n_init = 25
+  evald = get_chaotic_eval_dataset(body, n_init=n_init, n_samples=n_samples, eps_scale=eps_scale)
 
   model = model.to(device)
 
@@ -211,18 +215,30 @@ def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
   true_zt_chaos = evald['true_zt_chaos'].to(device)
   true_zt_chaos = true_zt_chaos[:n_samples]
 
+  z0 = torch.cat([z0_orig.unsqueeze(0), true_zt_chaos[:,:,0]], 0)
+  z0 = z0.reshape((n_samples + 1)*n_init, *z0.shape[2:])
+
   if uq_type == 'output-uncertainty':
-    pred_zt, var_zt = model(z0_orig, ts, n_samples=n_samples)
+    pred_zt, var_zt = model(z0, ts, n_samples=n_samples)
+    var_zt = var_zt.reshape((n_samples + 1), n_init, *var_zt.shape[1:])[0]
   else:
-    pred_zt = model(z0_orig, ts, n_samples=n_samples)
-  
+    pred_zt = model(z0, ts, n_samples=n_samples)
+
+  if uq_type == 'swag' or uq_type == 'deep-ensemble':
+    pred_zt = pred_zt.reshape(n_samples, (n_samples + 1), n_init, *pred_zt.shape[2:])
+    pred_zt, pred_zt_chaos = pred_zt[:,0], pred_zt[:,1:].mean(0)
+  else:
+    pred_zt = pred_zt.reshape((n_samples + 1), n_init, *pred_zt.shape[1:])
+    pred_zt, pred_zt_chaos = pred_zt[:1], pred_zt[1:]
+
   ## NOTE: Simply dump all data so that we can do offline plotting.
   data_dump = dict(
     ts=ts.cpu(),
     z0_orig=z0_orig.cpu(),
     true_zt=true_zt.cpu(),
     true_zt_chaos=true_zt_chaos.cpu(),
-    pred_zt=pred_zt.cpu()
+    pred_zt=pred_zt.cpu(),
+    pred_zt_chaos=pred_zt_chaos.cpu()
   )
   if uq_type == 'output-uncertainty':
     data_dump['var_zt'] = var_zt.cpu()
@@ -232,11 +248,84 @@ def evaluate_uq(body, model, eps_scale=1e-2, n_samples=10, device=None):
   torch.save(data_dump, data_dump_file)
   wandb.save(data_dump_file)
 
-  plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt)
+  # plot_ts(ts, z0_orig, true_zt, true_zt_chaos, pred_zt)
 
-  compute_metrics(ts, true_zt, true_zt_chaos, pred_zt)
+  # compute_metrics(ts, true_zt, true_zt_chaos, pred_zt)
 
-def main(**cfg):
+def fit_mvn(zs):
+  print(zs.std(0))
+  print(zs.std())
+  print("")
+  print(zs.min(0)[0])
+  print(zs.max(0)[0])
+  q = torch.linspace(0, 1, steps=10).to(zs)
+  print(torch.quantile(zs, q))
+  sys.exit(0)
+
+  N, M = zs.shape
+  mu = torch.zeros(1, M, device="cuda")
+  logcov = torch.zeros(1, M, requires_grad=True, device="cuda")
+  
+  optimizer = torch.optim.SGD([logcov], lr=1e-4, momentum=0.9)
+  for _ in range(1000):
+    print(logcov)
+    print(logcov.exp())
+    dist = torch.distributions.MultivariateNormal(mu, logcov.exp().diag_embed())
+    logp = dist.log_prob(zs).mean()
+
+    optimizer.zero_grad()
+    logp.backward()
+    optimizer.step()
+
+def _flip(x, dim):
+    indices = [slice(None)] * x.dim()
+    indices[dim] = torch.arange(x.size(dim) - 1, -1, -1, dtype=torch.long, device=x.device)
+    return x[tuple(indices)]
+
+def map_backwards(uq_type, body, model, eps_scale=1e-2, n_samples=5, device=None):
+  n_init = 25
+  evald = get_chaotic_eval_dataset(body, n_init=n_init, n_samples=n_samples, eps_scale=eps_scale)
+
+  model = model.to(device)
+
+  ts = evald['ts'].to(device)
+  z0_orig = evald['z0_orig'].to(device)
+  true_zt = evald['true_zt'].to(device)
+  true_zt_chaos = evald['true_zt_chaos'].to(device)
+  true_zt_chaos = true_zt_chaos[:n_samples]
+
+  forw_pred = model(z0_orig, ts, n_samples=n_samples)
+  errs = (forw_pred - true_zt).pow(2)
+  # print(errs.mean([0,2,3,4]))
+
+  back_ts = ts.flip(0)
+  back_pred = model(true_zt[:,-1], back_ts, n_samples=n_samples).flip(1)
+  errs = (back_pred - true_zt).pow(2)
+  # print(errs.mean([0,2,3,4]))
+  # sys.exit(0)
+
+  z0s = []
+  bs = z0_orig.size(0)
+  T = len(ts)
+  for idx in range(1,T):
+    back_ts = torch.cat([ts[idx:idx+1], ts[:1]])
+    back_preds = model(true_zt[:,idx], back_ts, n_samples=n_samples)
+
+    pred_z0s = (true_zt[:,0] - back_preds[:,-1]).reshape(bs, -1)
+    z0s.append(pred_z0s)
+
+  z0s = torch.cat(z0s)
+  # (true_zt[:,0] - back_pred[:,0]).reshape(n_init, -1) #torch.cat(z0s)
+  
+  fit_mvn(z0s)
+
+  magnitudes = z0s.pow(2).sum(1).clamp(0, 100000)
+  plt.hist(magnitudes.cpu().numpy(), bins=20, log=True)
+  plt.savefig("z0_magnitudes.png")
+  plt.close()
+
+def main(jid=None, **cfg):
+  ## jid is a dummy argument.
   wandb.init(config=cfg)
 
   run_eval = cfg.pop('run_eval', True)
@@ -247,21 +336,45 @@ def main(**cfg):
     cfg['device'] = 'cuda:0' if torch.cuda.is_available() else None
 
   body = ChainPendulum(cfg.get('num_bodies', 3))
+  #CoupledPendulum(cfg.get('num_bodies', 3))
+  #MagnetPendulum(cfg.get('num_bodies', 3))
+  #ChainPendulum(cfg.get('num_bodies', 3))
+  cfg['uq_type'] = cfg.get('uq_type', None)
+  if cfg['uq_type'] == 'output-uncertainty':
+    network = AleatoricCHNN
+  elif cfg['uq_type'] == 'cnf':
+    network = CNFCHNN
+  else:
+    network = CHNN
+
   trainer = make_trainer(**cfg,
-    network=AleatoricCHNN, body=body, trainer_config=dict(log_dir=wandb.run.dir))
+      network=network, body=body, trainer_config=dict(log_dir=wandb.run.dir))
+
+  # map_backwards(cfg['uq_type'], body, trainer.model, eps_scale=eps_scale, device=cfg['device'])
+
+  # load_fn = "/misc/vlgscratch4/WilsonGroup/ngruver/src/physics-uncertainty/wandb/offline-run-20210108_125717-1w6bfiaj/files/model.pt"
+  # state_dict = torch.load(load_fn)
+  # trainer.model.load_state_dict(state_dict)
 
   trainer.train(cfg.get('num_epochs', 10))
 
   save_dir = os.path.join(wandb.run.dir, 'model.pt')
+  print("************* SAVE DIR: {} *************".format(save_dir))
+
+  from pprint import pprint
+  pprint(trainer.model)
+  pprint(trainer.model.state_dict())
+
   torch.save(trainer.model.state_dict(), save_dir)
   wandb.save(save_dir)
 
   cfg['uq_type'] = cfg.get('uq_type', None)
   if run_eval:# and (cfg['uq_type'] is not None):
     evaluate_uq(cfg['uq_type'], body, trainer.model, eps_scale=eps_scale, device=cfg['device'])
+    # map_backwards(cfg['uq_type'], body, trainer.model, eps_scale=eps_scale, device=cfg['device'])
 
 if __name__ == "__main__":
-  os.environ['WANDB_MODE'] = os.environ.get('WANDB_MODE', default='dryrun')
+  # os.environ['WANDB_MODE'] = os.environ.get('WANDB_MODE', default='dryrun')
 
   from fire import Fire
   Fire(main)

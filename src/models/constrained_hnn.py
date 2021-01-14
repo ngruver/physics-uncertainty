@@ -1,4 +1,5 @@
 import sys
+import math
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,6 +14,22 @@ from typing import Optional, Tuple, Union
 import networkx as nx
 import torch.nn.functional as F
 from ..uncertainty.swag import SWAG
+
+def divergence_bf(dz, z, **unused_kwargs):
+    sum_diag = 0.
+    for i in range(z.shape[1]):
+        grad = torch.autograd.grad(dz[:, i].sum(), z, create_graph=True)[0]
+        sum_diag += grad.contiguous()[:, i].contiguous()
+    return sum_diag.contiguous()
+
+def standard_normal_logprob(z, std=1):
+    logZ = -0.5 * math.log(2 * math.pi) - math.log(std)
+    return logZ - (z / std).pow(2) / 2
+
+def _flip(x, dim):
+    indices = [slice(None)] * x.dim()
+    indices[dim] = torch.arange(x.size(dim) - 1, -1, -1, dtype=torch.long, device=x.device)
+    return x[tuple(indices)]
 
 class CH(nn.Module):  # abstract constrained Hamiltonian network class
     def __init__(self,G,
@@ -127,7 +144,7 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
     def compute_V(self, x):
         raise NotImplementedError
 
-    def _integrate(self, dynamics, d_moments, z0, ts, tol=1e-4, method="rk4"):
+    def _integrate(self, dynamics, d_moments, z0, ts, tol=1e-4, method="rk4", w_div=False):
         """ Integrates an initial state forward in time according to the learned Hamiltonian dynamics
         Assumes that z0 = [x0, xdot0] where x0 is in Cartesian coordinates
         Args:
@@ -141,28 +158,48 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
         assert z0.size(-1) == self.dof_ndim
         assert z0.size(-2) == self.n_dof
         bs = z0.size(0)
+
         #z0 = z0.reshape(N, -1)  # -> N x (2 * n_dof * dof_ndim) =: N x D
         x0, xdot0 = z0.chunk(2, dim=1)
         p0 = self.M(d_moments, xdot0)
 
         self.nfe = 0
         xp0 = torch.stack([x0, p0], dim=1).reshape(bs,-1)
-        xpt = odeint(dynamics, xp0, ts, rtol=tol, method=method)
+
+        if w_div:
+            def augmented_dynamics(t, z):
+                _z = z[0]
+                with torch.set_grad_enabled(True):
+                    _z.requires_grad_(True)
+                    t.requires_grad_(True)
+                    dz = dynamics(t, _z)
+                    divergence = divergence_bf(dz, _z)
+                return (dz, -divergence)
+
+            zero = torch.zeros(xp0.shape[0], 1).to(xp0)
+            xpt, delta_logp = odeint(augmented_dynamics, (xp0, zero), ts, rtol=tol, method=method)
+        else:
+            xpt = odeint(dynamics, xp0, ts, rtol=tol, method=method)
+
         xpt = xpt.permute(1, 0, 2)  # T x bs x D -> bs x T x D
         xpt = xpt.reshape(bs, len(ts), 2, self.n_dof, self.dof_ndim)
         xt, pt = xpt.chunk(2, dim=-3)
         # TODO: make Minv @ pt faster by L(L^T @ pt)
         vt = self.Minv(d_moments, pt)  # Minv [n_dof x n_dof]. pt [bs, T, 1, n_dof, dof_ndim]
         xvt = torch.cat([xt, vt], dim=-3)
-        return xvt
+
+        if w_div:
+            return xvt, delta_logp
+        else:
+            return xvt
       
-    def integrate(self, z0, ts, tol=1e-4, method="rk4"):
+    def integrate(self, z0, ts, tol=1e-4, method="rk4", w_div=False):
         d_moments = self.d_moments
         Minv = lambda p: self.Minv(d_moments, p)
         H = lambda t, z: self.H(Minv, self.compute_V, t, z)
         DPhi = lambda zp: self.DPhi(Minv, zp)
         dynamics = lambda t, z: self.dynamics(t, z, H=H, DPhi=DPhi)
-        return self._integrate(dynamics, d_moments, z0, ts, tol, method)
+        return self._integrate(dynamics, d_moments, z0, ts, tol, method, w_div)
 
     def integrate_swag(self, z0, ts, tol=1e-4, method="rk4"):
         d_moments = self.swag_d_moments
@@ -237,6 +274,93 @@ class AleatoricCHNN(CH):
         super().__init__(G=G, dof_ndim=dof_ndim, angular_dims=angular_dims, wgrad=wgrad, **kwargs
         )
         n = len(G.nodes())
+        self.diag_cov_dim = 2 * n * dof_ndim
+
+        chs = [n * self.dof_ndim] + num_layers * [hidden_size]
+        layers = \
+            [FCtanh(chs[i], chs[i + 1], zero_bias=False, orthogonal_init=True)
+                for i in range(num_layers)] + \
+            [Linear(chs[-1], 1 + self.diag_cov_dim, zero_bias=False, orthogonal_init=True)] 
+
+        self.output_net = nn.Sequential(*layers)
+
+        print(self.output_net)
+
+        chs = [self.diag_cov_dim] + [hidden_size]
+        layers = \
+            [FCtanh(chs[0], chs[1], zero_bias=False, orthogonal_init=True)] + \
+            [Linear(chs[1], self.diag_cov_dim, zero_bias=False, orthogonal_init=True)] 
+
+        self.cov_net = nn.Sequential(*layers)
+
+        print(self.cov_net)
+
+    def compute_V(self, x):
+        """ Input is a canonical position variable and the system parameters,
+        Args:
+            x: (N x n_dof x dof_ndim) sized Tensor representing the position in
+            Cartesian coordinates
+        Returns: a length N Tensor representing the potential energy
+        """
+        assert x.ndim == 3
+        out =  self.output_net(x.reshape(x.size(0), -1))
+        return out[:,0]
+
+    def _get_cov_v1(self, zs, ts):
+        #batched = zt_pred[:,:,0,:,:].reshape(-1, *zt_pred.shape[3:])
+        out =  self.output_net(x.reshape(x.size(0), -1))
+        return out[:,1:].exp()
+
+    def _get_cov_v2(self, zs, ts):
+        batched = zs.reshape(-1, *zs.shape[2:])
+        flat = batched.reshape(batched.size(0), -1)
+        ts_rep = ts.expand(zs.size(0),-1).reshape(-1, 1)
+        w_t = flat #torch.cat([flat, ts_rep], dim=1)
+        cov = self.cov_net(w_t).exp()
+        return cov
+
+    def get_covariance(self, zs, ts):
+        return self._get_cov_v2(zs, ts)
+
+    def _nll_v1(self, true_zs, z0, ts, tol):
+        pred_zs = self.integrate(z0, ts, tol=tol)
+
+        batched = true_zs[:,:,0,:,:].reshape(-1, *true_zs.shape[3:])
+        covariance = self.get_covariance(batched)
+
+        mu = pred_zs.reshape(pred_zs.size(0)*pred_zs.size(1), -1)
+        dist = torch.distributions.MultivariateNormal(mu, covariance.diag_embed())
+        target = true_zs.reshape(true_zs.size(0)*true_zs.size(1), -1)
+        nll = -1 * dist.log_prob(target).mean()
+
+        return nll
+
+    def _nll_v2(self, true_zs, z0, ts, tol):
+        pred_zs = self.integrate(z0, ts, tol=tol)
+        covariance = self.get_covariance(pred_zs.detach(), ts)
+
+        mu = pred_zs.reshape(pred_zs.size(0)*pred_zs.size(1), -1)
+        dist = torch.distributions.MultivariateNormal(mu, covariance.diag_embed())
+        target = true_zs.reshape(true_zs.size(0)*true_zs.size(1), -1)
+        nll = -1 * dist.log_prob(target).mean()
+
+        return nll
+
+    def nll(self, true_zs, z0, ts, tol):
+        return self._nll_v2(true_zs, z0, ts, tol)
+
+class CNFCHNN(CH):
+    def __init__(self,G,
+        dof_ndim: Optional[int] = None,
+        angular_dims: Union[Tuple, bool] = tuple(),
+        hidden_size: int = 256,
+        num_layers=3,
+        wgrad=True,
+        **kwargs
+    ):
+        super().__init__(G=G, dof_ndim=dof_ndim, angular_dims=angular_dims, wgrad=wgrad, **kwargs
+        )
+        n = len(G.nodes())
         chs = [n * self.dof_ndim] + num_layers * [hidden_size]
         
         layers = \
@@ -259,6 +383,25 @@ class AleatoricCHNN(CH):
         out =  self.output_net(x.reshape(x.size(0), -1))
         return out[:,0]
 
-    def get_covariance(self, x):
-        out =  self.output_net(x.reshape(x.size(0), -1))
-        return out[:,1:].exp()
+    def nll(self, true_zs, z0, ts, tol):
+        bs, T = true_zs.shape[:2]
+
+        nll = 0
+        # back_ts = _flip(ts, 0) #torch.cat([ts[-1:], ts[:1]])
+        for idx in range(1,T):
+            back_ts = torch.cat([ts[idx:idx+1], ts[:1]])
+            back_preds, delta_logp = self.integrate(true_zs[:,idx], back_ts, tol=tol, w_div=True)
+
+            pred_z0s = (true_zs[:,0] - back_preds[:,-1]).reshape(bs, -1)
+            delta_logp = delta_logp[-1] 
+
+            logpz = standard_normal_logprob(pred_z0s, std=0.2).sum(1, keepdim=True)
+            logpx = logpz - delta_logp
+
+            # print("LOGPZ: {}".format(logpz.mean()))
+            # print("DELTA_LOGP: {}".format(delta_logp.mean()))
+
+            nll += -torch.mean(logpx)
+        
+        nll /= T
+        return nll

@@ -18,12 +18,12 @@ parameters:
   C:
     value: 25 
   num_epochs:
-    value: 25
+    value: 50
   uq_type:
-    value: "swag"
-  run_eval:
-    value: False
-program: exps/train_chnn.py
+    values: ["det", "deep-ensemble"]
+  n_subsample:
+    values: [10, 20, 50, 100, 200, 500, 800, 1000]
+program: exps/train_hnn.py
 command:
   - ${env}
   - python3

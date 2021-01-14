@@ -1,21 +1,23 @@
 import torch
 import networkx as nx
 import numpy as np
+from oil.utils.utils import export,FixedNumpySeed
+from src.systems.rigid_body import RigidBody, BodyGraph, project_onto_constraints
+from src.animation import Animation
 import copy
 
-from .rigid_body import RigidBody, BodyGraph, project_onto_constraints
-
+@export
 class ChainPendulum(RigidBody):
     d=2
     dt=.03
-    def __init__(self, links=2, beams=False, m=None, l=None, tau=3.):
-        self.integration_time = tau
+    integration_time=3
+    def __init__(self, links=2, beams=False, m=None, l=None):
         self.body_graph = BodyGraph()#nx.Graph()
         self.arg_string = f"n{links}{'b' if beams else ''}m{m or 'r'}l{l or 'r'}"
         assert not beams, "beams temporarily not supported"
-        # with FixedNumpySeed(0):
-        ms = [.6+.8*np.random.rand() for _ in range(links)] if m is None else links*[m]
-        ls = [.6+.8*np.random.rand() for _ in range(links)] if l is None else links*[l]
+        with FixedNumpySeed(0):
+            ms = [.6+.8*np.random.rand() for _ in range(links)] if m is None else links*[m]
+            ls = [.6+.8*np.random.rand() for _ in range(links)] if l is None else links*[l]
         self.ms = copy.deepcopy(ms)
         self.body_graph.add_extended_nd(0, m=ms.pop(), d=0,tether=(torch.zeros(2),ls.pop()))
         for i in range(1, links):
@@ -117,28 +119,29 @@ class ChainPendulumV2(ChainPendulum):
                 self.body_graph.add_node(i, m=m)
                 self.body_graph.add_edge(i - 1, i, l=l)
 
-# class PendulumAnimation(Animation):
-#     def __init__(self, qt, body):
-#         super().__init__(qt, body)
-#         self.body = body
-#         self.G = body.body_graph
-#         empty = self.qt.shape[-1] * [[]]
-#         n_beams = len(nx.get_node_attributes(self.G, "tether")) + len(self.G.edges)
-#         self.objects["beams"] = sum(
-#             [self.ax.plot(*empty, "-",color='k') for _ in range(n_beams)], []
-#         )
-#         self.objects["pts"] = sum([self.ax.plot(*empty, "o", ms=10*body.ms[i]**2,c=self.colors[i]) for i in range(self.qt.shape[1])], [])
+@export
+class PendulumAnimation(Animation):
+    def __init__(self, qt, body):
+        super().__init__(qt, body)
+        self.body = body
+        self.G = body.body_graph
+        empty = self.qt.shape[-1] * [[]]
+        n_beams = len(nx.get_node_attributes(self.G, "tether")) + len(self.G.edges)
+        self.objects["beams"] = sum(
+            [self.ax.plot(*empty, "-",color='k') for _ in range(n_beams)], []
+        )
+        self.objects["pts"] = sum([self.ax.plot(*empty, "o", ms=10*body.ms[i]**2,c=self.colors[i]) for i in range(self.qt.shape[1])], [])
 
-#     def update(self, i=0):
-#         beams = [
-#             np.stack([self.qt[i, k, :], self.qt[i, l, :]], axis=1)
-#             for (k, l) in self.G.edges
-#         ] + [
-#             np.stack([loc.cpu().data.numpy(), self.qt[i, k, :]], axis=1)
-#             for k, (loc,_) in nx.get_node_attributes(self.G, "tether").items()
-#         ]
-#         for beam, line in zip(beams, self.objects["beams"]):
-#             line.set_data(*beam[:2])
-#             if self.qt.shape[-1] == 3:
-#                 line.set_3d_properties(beam[2])
-#         return super().update(i)
+    def update(self, i=0):
+        beams = [
+            np.stack([self.qt[i, k, :], self.qt[i, l, :]], axis=1)
+            for (k, l) in self.G.edges
+        ] + [
+            np.stack([loc.cpu().data.numpy(), self.qt[i, k, :]], axis=1)
+            for k, (loc,_) in nx.get_node_attributes(self.G, "tether").items()
+        ]
+        for beam, line in zip(beams, self.objects["beams"]):
+            line.set_data(*beam[:2])
+            if self.qt.shape[-1] == 3:
+                line.set_3d_properties(beam[2])
+        return super().update(i)
