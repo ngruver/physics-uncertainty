@@ -17,7 +17,7 @@ if [[ -z "${WANDB_SWEEP_ID}" ]]; then
   exit 1
 fi
 
-source "${HOME}/.bash_profile"
+# source "${HOME}/.bash_profile"
 
 export WANDB_MODE=run
 export WANDB_DIR="${LOGDIR}"
@@ -28,7 +28,7 @@ cd "${WORKDIR}/physics-uncertainty"
 
 export PYTHONPATH="$(pwd):${PYTHONPATH}"
 
-conda deactivate
-conda activate phy-unc
+source $(conda info --base)/bin/deactivate
+source $(conda info --base)/bin/activate phy-unc
 
 wandb agent --count=1 ${WANDB_SWEEP_ID}

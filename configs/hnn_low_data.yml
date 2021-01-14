@@ -1,0 +1,31 @@
+## W&B Sample sweep config
+
+# method: grid
+# method: bayes
+# metric:
+#   name: val/lik
+#   goal: maximize
+
+project: physics-uncertainty-exps
+method: grid
+parameters:
+  num_bodies:
+    value: 3
+  lr:
+    value: 3e-3
+  tau:
+    value: 10.
+  C:
+    value: 25 
+  num_epochs:
+    value: 50
+  uq_type:
+    values: ["det", "deep-ensemble"]
+  n_subsample:
+    values: [10, 20, 50, 100, 200, 500, 800, 1000]
+program: exps/train_hnn.py
+command:
+  - ${env}
+  - python3
+  - ${program}
+  - ${args}

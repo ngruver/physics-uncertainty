@@ -41,40 +41,19 @@ class IntegratedDynamicsTrainer(Trainer):
 
     def loss(self, minibatch):
         """ Standard cross-entropy loss """
-        (z0, ts), true_zs = minibatch
-        
-        if not self.constrained:
-            z0 = z0.transpose(1,2)
-            z0 = z0.reshape(-1,*z0.size()[2:])
-            true_zs = true_zs.transpose(3,2).transpose(2,1)
-            true_zs = true_zs.reshape(-1,*true_zs.size()[2:])
-
-        pred_zs = self.model.integrate(z0, ts[0], tol=self.hypers["tol"])
-
         self.num_mbs += 1
+        (z0, ts), true_zs = minibatch
+        pred_zs = self.model.integrate(z0, ts[0], tol=self.hypers["tol"])
         return (pred_zs - true_zs).abs().mean()
 
     def nll_loss(self, minibatch):
-        (z0, ts), true_zs = minibatch
-        
-        if not self.constrained:
-            z0 = z0.transpose(1,2)
-            z0 = z0.reshape(-1,*z0.size()[2:])
-            true_zs = true_zs.transpose(3,2).transpose(2,1)
-            true_zs = true_zs.reshape(-1,*true_zs.size()[2:])
-
-        pred_zs = self.model.integrate(z0, ts[0], tol=self.hypers["tol"])
-        batched = true_zs[:,:,0,:,:].reshape(-1, *true_zs.shape[3:])
-        covariance = self.model.get_covariance(batched)
-
-        mu = pred_zs.reshape(pred_zs.size(0)*pred_zs.size(1), -1)
-        dist = torch.distributions.MultivariateNormal(mu, covariance.diag_embed())
-        target = true_zs.reshape(true_zs.size(0)*true_zs.size(1), -1)
-        nll = -1 * dist.log_prob(target).mean()
-
         self.num_mbs += 1
-        return nll
+        (z0, ts), true_zs = minibatch
+        nll = self.model.nll(true_zs, z0, ts[0], self.hypers["tol"])
 
+        print("NLL: {}".format(nll))
+
+        return nll
 
     def step(self, minibatch):
         self.optimizer.zero_grad()
@@ -111,8 +90,9 @@ class IntegratedDynamicsTrainer(Trainer):
                 #z0 = z0.cpu().double()
                 T = T[0]
                 body = dataloader.dataset.body
-                long_T = body.dt * torch.arange(10*body.integration_time//body.dt).to(z0.device, z0.dtype)
-                zt_pred = self.model.integrate(z0, long_T,tol=1e-7,method='dopri5')
+                long_T = torch.arange(0., 10., body.dt).to(z0.device, z0.dtype)
+                
+                zt_pred = self.model.integrate(z0, long_T, method='rk4')#long_T, method='rk4')
                 bs, Nlong, *rest = zt_pred.shape
                 # add conversion from angular to euclidean
                 
@@ -120,26 +100,27 @@ class IntegratedDynamicsTrainer(Trainer):
                     z0 = body.body2globalCoords(z0)
                     flat_pred = body.body2globalCoords(zt_pred.reshape(bs * Nlong, *rest))
                     zt_pred = flat_pred.reshape(bs, Nlong, *flat_pred.shape[1:])
+                
                 zt = dataloader.dataset.body.integrate(z0, long_T)
-                perturbation = pert_eps * torch.randn_like(z0) # perturbation does not respect constraints
-                z0_perturbed = project_onto_constraints(body.body_graph,z0 + perturbation,tol=1e-5) #project
-                zt_pert = body.integrate(z0_perturbed, long_T)
+                # perturbation = pert_eps * torch.randn_like(z0) # perturbation does not respect constraints
+                # z0_perturbed = project_onto_constraints(body.body_graph,z0 + perturbation,tol=1e-5) #project
+                # zt_pert = body.integrate(z0_perturbed, long_T)
                 # (bs,T,2,n,2)
                 rel_error = ((zt_pred - zt) ** 2).sum(-1).sum(-1).sum(-1).sqrt() / (
                     (zt_pred + zt) ** 2
                 ).sum(-1).sum(-1).sum(-1).sqrt()
                 rel_errs.append(rel_error)
-                pert_rel_error = ((zt_pert - zt) ** 2).sum(-1).sum(-1).sum(-1 \
-                ).sqrt() / ((zt_pert + zt) ** 2).sum(-1).sum(-1).sum(-1).sqrt()
-                pert_rel_errs.append(pert_rel_error)
+                # pert_rel_error = ((zt_pert - zt) ** 2).sum(-1).sum(-1).sum(-1 \
+                # ).sqrt() / ((zt_pert + zt) ** 2).sum(-1).sum(-1).sum(-1).sqrt()
+                # pert_rel_errs.append(pert_rel_error)
             rel_errs = torch.cat(rel_errs, dim=0)  # (D,T)
-            pert_rel_errs = torch.cat(pert_rel_errs, dim=0)  # (D,T)
-            both = (rel_errs, pert_rel_errs,zt_pred,zt_pert)
+            # pert_rel_errs = torch.cat(pert_rel_errs, dim=0)  # (D,T)
+            both = (rel_errs, zt_pred)#, pert_rel_errs, zt_pred, zt_pert)
         return both
 
 def make_trainer(*,
     network=HNN, net_cfg={}, device=None, root_dir=None,
-    dataset=RigidBodyDataset, body=ChainPendulum(3), tau=3, n_systems=10000, regen=False, C=5,
+    dataset=RigidBodyDataset, body=ChainPendulum(3), tau=3, n_systems=1000, regen=False, C=5,
     lr=3e-3, bs=200, num_epochs=100, trainer_config={}, net_seed=None, n_subsample=None,
     noise_rate=None):
     
@@ -162,7 +143,7 @@ def make_trainer(*,
     model = network(dataset.body.body_graph, dof_ndim=dof_ndim,
                     angular_dims=dataset.body.angular_dims, **net_cfg)
     model = model.float().to(device)
-    
+
     # Create train and Dev(Test) dataloaders and move elems to gpu
     dataloaders = {
         k: LoaderTo(DataLoader(v, batch_size=min(bs, splits[k]), num_workers=0, 

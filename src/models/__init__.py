@@ -1,3 +1,3 @@
-from .constrained_hnn import CHNN, CH, AleatoricCHNN
+from .constrained_hnn import CHNN, CH, AleatoricCHNN, CNFCHNN
 from .hnn import HNN
 from .nn import NN

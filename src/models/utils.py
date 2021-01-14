@@ -24,7 +24,7 @@ def Linear(chin, chout, zero_bias=False, orthogonal_init=False):
     if zero_bias:
         torch.nn.init.zeros_(linear.bias)
     if orthogonal_init:
-        torch.nn.init.orthogonal_(linear.weight)
+        torch.nn.init.orthogonal_(linear.weight, gain=0.5)
     return linear
 
 
