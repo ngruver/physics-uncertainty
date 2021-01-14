@@ -324,7 +324,8 @@ def map_backwards(uq_type, body, model, eps_scale=1e-2, n_samples=5, device=None
   plt.savefig("z0_magnitudes.png")
   plt.close()
 
-def main(**cfg):
+def main(jid=None, **cfg):
+  ## jid is a dummy argument.
   wandb.init(config=cfg)
 
   run_eval = cfg.pop('run_eval', True)
