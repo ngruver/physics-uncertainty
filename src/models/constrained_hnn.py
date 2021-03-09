@@ -181,26 +181,9 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
         if models is None:
             _dynamics = self.forward
         else:
-            def _dynamics(t, z):
-                dz = []
-                for model in models:
-                    dz.append(model(t, z))
-                return torch.stack(dz, 0).mean(0)
+            _dynamics = lambda t, z: torch.stack([model(t, z) for model in models], 0).mean(0)
 
-        if w_div:
-            def augmented_dynamics(t, z):
-                _z = z[0]
-                with torch.set_grad_enabled(True):
-                    _z.requires_grad_(True)
-                    t.requires_grad_(True)
-                    dz = _dynamics(t, _z)
-                    divergence = divergence_bf(dz, _z)
-                return (dz, -divergence)
-
-            zero = torch.zeros(xp0.shape[0], 1).to(xp0)
-            xpt, delta_logp = odeint(augmented_dynamics, (xp0, zero), ts, rtol=tol, method=method)
-        else:
-            xpt = odeint(_dynamics, xp0, ts, rtol=tol, method=method)
+        xpt = odeint(_dynamics, xp0, ts, rtol=tol, method=method)
 
         xpt = xpt.permute(1, 0, 2)  # T x bs x D -> bs x T x D
         xpt = xpt.reshape(bs, len(ts), 2, self.n_dof, self.dof_ndim)
@@ -210,10 +193,7 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
         if models is None:
             vt = self.Minv(pt)  # Minv [n_dof x n_dof]. pt [bs, T, 1, n_dof, dof_ndim]
         else:
-            vt = []
-            for model in models:
-                vt.append(model.Minv(pt))
-            vt = torch.stack(vt, 0).mean(0)
+            vt = torch.stack([model.Minv(pt) for model in models], 0).mean(0)
 
         xvt = torch.cat([xt, vt], dim=-3)
 
@@ -361,60 +341,3 @@ class AleatoricCHNN(CH):
 
     def nll(self, true_zs, z0, ts, tol):
         return self._nll_v2(true_zs, z0, ts, tol)
-
-class CNFCHNN(CH):
-    def __init__(self,G,
-        dof_ndim: Optional[int] = None,
-        angular_dims: Union[Tuple, bool] = tuple(),
-        hidden_size: int = 256,
-        num_layers=3,
-        wgrad=True,
-        **kwargs
-    ):
-        super().__init__(G=G, dof_ndim=dof_ndim, angular_dims=angular_dims, wgrad=wgrad, **kwargs
-        )
-        n = len(G.nodes())
-        chs = [n * self.dof_ndim] + num_layers * [hidden_size]
-        
-        layers = \
-            [FCtanh(chs[i], chs[i + 1], zero_bias=False, orthogonal_init=True)
-                for i in range(num_layers)] + \
-            [Linear(chs[-1], 1 + 2 * n * dof_ndim, zero_bias=False, orthogonal_init=True)] 
-
-        self.output_net = nn.Sequential(*layers)
-
-        print(self.output_net)
-
-    def compute_V(self, x):
-        """ Input is a canonical position variable and the system parameters,
-        Args:
-            x: (N x n_dof x dof_ndim) sized Tensor representing the position in
-            Cartesian coordinates
-        Returns: a length N Tensor representing the potential energy
-        """
-        assert x.ndim == 3
-        out =  self.output_net(x.reshape(x.size(0), -1))
-        return out[:,0]
-
-    def nll(self, true_zs, z0, ts, tol):
-        bs, T = true_zs.shape[:2]
-
-        nll = 0
-        # back_ts = _flip(ts, 0) #torch.cat([ts[-1:], ts[:1]])
-        for idx in range(1,T):
-            back_ts = torch.cat([ts[idx:idx+1], ts[:1]])
-            back_preds, delta_logp = self.integrate(true_zs[:,idx], back_ts, tol=tol, w_div=True)
-
-            pred_z0s = (true_zs[:,0] - back_preds[:,-1]).reshape(bs, -1)
-            delta_logp = delta_logp[-1] 
-
-            logpz = standard_normal_logprob(pred_z0s, std=0.2).sum(1, keepdim=True)
-            logpx = logpz - delta_logp
-
-            # print("LOGPZ: {}".format(logpz.mean()))
-            # print("DELTA_LOGP: {}".format(delta_logp.mean()))
-
-            nll += -torch.mean(logpx)
-        
-        nll /= T
-        return nll
