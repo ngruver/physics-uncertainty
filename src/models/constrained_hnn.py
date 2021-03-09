@@ -66,7 +66,7 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
         wrap = lambda: nn.ParameterDict(moment_dict)
         self.swag_d_moments = SWAG(wrap)
 
-    def Minv(self, d_moments, p):
+    def Minv(self, p):
         """ assumes p shape (*,n,a) and n is organized, all the same dimension for now"""
         assert len(self.d_moments)==1, "For now only supporting 1 dimension at a time"
         d = int(list(self.d_moments.keys())[0])
@@ -82,7 +82,7 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
         total = inverse_massed_p + p_reshaped*padded_inertias_inv[:,:,None]
         return total.reshape(*p.shape)
 
-    def M(self, d_moments, v):
+    def M(self, v):
         """ assumes v has shape (*,n,a) and n is organized, all the same dimension for now"""
         assert len(self.d_moments)==1, "For now only supporting 1 dimension at a time"
         d = int(list(self.d_moments.keys())[0])
@@ -100,8 +100,7 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
         pi = ai0*v[...,:1,:] +aii*v[...,1:,:]
         return torch.cat([p0,pi],dim=-2).reshape(*v.shape)
 
-
-    def H(self, Minv, compute_V, t, z):
+    def H(self, t, z):
         """ Compute the Hamiltonian H(t, x, p)
         Args:
             t: Scalar Tensor representing time
@@ -116,26 +115,26 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
         x = x.reshape(-1, self.n_dof, self.dof_ndim)
         p = p.reshape(-1, self.n_dof, self.dof_ndim)
 
-        T = EuclideanT(p, Minv)
-        V = compute_V(x)
+        T = EuclideanT(p, self.Minv)
+        V = self.compute_V(x)
         return T + V
 
-    def DPhi(self, Minv, zp):
+    def DPhi(self, zp):
         bs,n,d = zp.shape[0],self.n_dof,self.dof_ndim
         x,p = zp.reshape(bs,2,n,d).unbind(dim=1)
-        v = Minv(p)
+        v = self.Minv(p)
         DPhi = rigid_DPhi(self.G, x, v)
         # Convert d/dv to d/dp
         #DPhi[:,1] = 
-        DPhi = torch.cat([DPhi[:,:1],Minv(DPhi[:,1].reshape(bs,n,-1)).reshape(DPhi[:,1:].shape)],dim=1)
+        DPhi = torch.cat([DPhi[:,:1], self.Minv(DPhi[:,1].reshape(bs,n,-1)).reshape(DPhi[:,1:].shape)],dim=1)
         return DPhi.reshape(bs,2*n*d,-1)
 
-    # def Phi(self,zp):
-    #     bs,n,d = zp.shape[0],self.n_dof,self.dof_ndim
-    #     x,p = zp.reshape(bs,2,n,d).unbind(dim=1)
-    #     v = self.Minv(p)
-    #     Phi = rigid_Phi(self.G, x, v)
-    #     return Phi.reshape(bs,-1)
+    def Phi(self, zp):
+        bs,n,d = zp.shape[0],self.n_dof,self.dof_ndim
+        x,p = zp.reshape(bs,2,n,d).unbind(dim=1)
+        v = self.Minv(p)
+        Phi = rigid_Phi(self.G, x, v)
+        return Phi.reshape(bs,-1)
 
     def forward(self, t, z):
         self.nfe += 1
@@ -144,7 +143,22 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
     def compute_V(self, x):
         raise NotImplementedError
 
-    def _integrate(self, dynamics, d_moments, z0, ts, tol=1e-4, method="rk4", w_div=False):
+    def to_pos_momentum(self, z0, models=None):
+        bs = z0.size(0)
+        x0, xdot0 = z0.chunk(2, dim=1)
+
+        if models is None:
+            p0 = self.M(xdot0)
+        else:
+            p0 = []
+            for model in models:
+                p0.append(model.M(xdot0))
+            p0 = torch.stack(p0, 0).mean(0)
+
+        xp0 = torch.stack([x0, p0], dim=1).reshape(bs,-1)
+        return xp0
+
+    def integrate(self, z0, ts, tol=1e-4, method="rk4", w_div=False, models=None):
         """ Integrates an initial state forward in time according to the learned Hamiltonian dynamics
         Assumes that z0 = [x0, xdot0] where x0 is in Cartesian coordinates
         Args:
@@ -158,13 +172,20 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
         assert z0.size(-1) == self.dof_ndim
         assert z0.size(-2) == self.n_dof
         bs = z0.size(0)
-
         #z0 = z0.reshape(N, -1)  # -> N x (2 * n_dof * dof_ndim) =: N x D
-        x0, xdot0 = z0.chunk(2, dim=1)
-        p0 = self.M(d_moments, xdot0)
+    
+        xp0 = self.to_pos_momentum(z0, models=models)
 
         self.nfe = 0
-        xp0 = torch.stack([x0, p0], dim=1).reshape(bs,-1)
+        
+        if models is None:
+            _dynamics = self.forward
+        else:
+            def _dynamics(t, z):
+                dz = []
+                for model in models:
+                    dz.append(model(t, z))
+                return torch.stack(dz, 0).mean(0)
 
         if w_div:
             def augmented_dynamics(t, z):
@@ -172,42 +193,34 @@ class CH(nn.Module):  # abstract constrained Hamiltonian network class
                 with torch.set_grad_enabled(True):
                     _z.requires_grad_(True)
                     t.requires_grad_(True)
-                    dz = dynamics(t, _z)
+                    dz = _dynamics(t, _z)
                     divergence = divergence_bf(dz, _z)
                 return (dz, -divergence)
 
             zero = torch.zeros(xp0.shape[0], 1).to(xp0)
             xpt, delta_logp = odeint(augmented_dynamics, (xp0, zero), ts, rtol=tol, method=method)
         else:
-            xpt = odeint(dynamics, xp0, ts, rtol=tol, method=method)
+            xpt = odeint(_dynamics, xp0, ts, rtol=tol, method=method)
 
         xpt = xpt.permute(1, 0, 2)  # T x bs x D -> bs x T x D
         xpt = xpt.reshape(bs, len(ts), 2, self.n_dof, self.dof_ndim)
         xt, pt = xpt.chunk(2, dim=-3)
         # TODO: make Minv @ pt faster by L(L^T @ pt)
-        vt = self.Minv(d_moments, pt)  # Minv [n_dof x n_dof]. pt [bs, T, 1, n_dof, dof_ndim]
+        
+        if models is None:
+            vt = self.Minv(pt)  # Minv [n_dof x n_dof]. pt [bs, T, 1, n_dof, dof_ndim]
+        else:
+            vt = []
+            for model in models:
+                vt.append(model.Minv(pt))
+            vt = torch.stack(vt, 0).mean(0)
+
         xvt = torch.cat([xt, vt], dim=-3)
 
         if w_div:
             return xvt, delta_logp
         else:
             return xvt
-      
-    def integrate(self, z0, ts, tol=1e-4, method="rk4", w_div=False):
-        d_moments = self.d_moments
-        Minv = lambda p: self.Minv(d_moments, p)
-        H = lambda t, z: self.H(Minv, self.compute_V, t, z)
-        DPhi = lambda zp: self.DPhi(Minv, zp)
-        dynamics = lambda t, z: self.dynamics(t, z, H=H, DPhi=DPhi)
-        return self._integrate(dynamics, d_moments, z0, ts, tol, method, w_div)
-
-    def integrate_swag(self, z0, ts, tol=1e-4, method="rk4"):
-        d_moments = self.swag_d_moments
-        Minv = lambda p: self.Minv(d_moments, p)
-        H = lambda t, z: self.H(Minv, self.compute_V_swag, t, z)
-        DPhi = lambda zp: self.DPhi(Minv, zp)
-        dynamics = lambda t, z: self.dynamics(t, z, H=H, DPhi=DPhi)
-        return self._integrate(dynamics, d_moments, z0, ts, tol, method)        
 
     def collect_model(self):
         self.swag_d_moments.collect_model(self.d_moments)

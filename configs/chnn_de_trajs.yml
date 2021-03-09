@@ -1,0 +1,24 @@
+method: grid
+parameters:
+  num_bodies:
+    value: 3
+  lr:
+    value: 3e-3
+  tau:
+    value: 10.0
+  C:
+    value: 5
+  num_epochs:
+    value: 100
+  uq_type:
+    value: deep-ensemble
+  n_subsample:
+    values: [50, 200, 1000]
+  net_seed:
+    values: [1, 2, 3]
+program: exps/train_chnn.py
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - ${args}

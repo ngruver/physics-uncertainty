@@ -1,6 +1,7 @@
 import os
 import sys
 import wandb
+import tempfile
 import altair as alt
 import pandas as pd
 import numpy as np
@@ -324,8 +325,44 @@ def map_backwards(uq_type, body, model, eps_scale=1e-2, n_samples=5, device=None
   plt.savefig("z0_magnitudes.png")
   plt.close()
 
-def main(jid=None, **cfg):
-  ## jid is a dummy argument.
+def evaluate_training(trainer, body, model_num=0):
+  train_loader = trainer.dataloaders["train"]
+  test_loader = trainer.dataloaders["test"]
+
+  train_loss = 0
+  for mb in train_loader:
+    with torch.no_grad():
+      train_loss += trainer.loss(mb).item()
+
+  test_loss = 0
+  for mb in test_loader:
+    with torch.no_grad():
+      test_loss += trainer.loss(mb).item()
+
+  evald = get_chaotic_eval_dataset(body, n_init=25, n_samples=5)
+
+  device = "cuda" if torch.cuda.is_available() else None 
+  model = trainer.model.to(device)
+  ts = evald['ts'].to(device)
+  z0_orig = evald['z0_orig'].to(device)
+  true_zt = evald['true_zt'].to(device)
+
+  with torch.no_grad():
+    pred_zt = trainer.model.integrate(z0_orig, ts)
+
+  pred_rel_err = compute_rel_error(true_zt, pred_zt)
+  pred_geom_mean = compute_geom_mean(ts, pred_rel_err).mean().item()
+
+  eval_dict = {
+    'train_loss_{}'.format(model_num): train_loss,
+    'test_loss_{}'.format(model_num): test_loss,
+    'rollout_geom_mean_{}'.format(model_num): pred_geom_mean,
+  }
+
+  return eval_dict
+
+
+def main(**cfg):
   wandb.init(config=cfg)
 
   run_eval = cfg.pop('run_eval', True)
@@ -352,21 +389,36 @@ def main(jid=None, **cfg):
 
   # map_backwards(cfg['uq_type'], body, trainer.model, eps_scale=eps_scale, device=cfg['device'])
 
-  # load_fn = "/misc/vlgscratch4/WilsonGroup/ngruver/src/physics-uncertainty/wandb/offline-run-20210108_125717-1w6bfiaj/files/model.pt"
+  # load_fn = "/misc/vlgscratch4/WilsonGroup/ngruver/src/physics-uncertainty/wandb/run-20210114_122958-1axj7lqk/files/model.pt"
+  # #"/misc/vlgscratch4/WilsonGroup/ngruver/src/physics-uncertainty/wandb/offline-run-20210108_125717-1w6bfiaj/files/model.pt"
   # state_dict = torch.load(load_fn)
   # trainer.model.load_state_dict(state_dict)
 
-  trainer.train(cfg.get('num_epochs', 10))
+  root_dir = os.path.join(os.environ["LOGDIR"], "chnn_ensemble_diversity")
+  if not os.path.exists(root_dir):
+    os.makedirs(root_dir)
+  models_dir = tempfile.mkdtemp(dir=root_dir)
+
+  num_epochs = cfg.get('num_epochs', 10)
+  for i in range(num_epochs):
+    trainer.train(1)
+
+    save_dir = os.path.join(models_dir, 'model_{}.pt'.format(i))
+    torch.save(trainer.model.state_dict(), save_dir)
+
+    eval_dict = {}
+    for idx, _trainer in enumerate(trainer._trainers):
+      eval_dict.update(evaluate_training(_trainer, body, idx))
+
+    wandb.log(eval_dict)
 
   save_dir = os.path.join(wandb.run.dir, 'model.pt')
   print("************* SAVE DIR: {} *************".format(save_dir))
 
-  from pprint import pprint
-  pprint(trainer.model)
-  pprint(trainer.model.state_dict())
-
   torch.save(trainer.model.state_dict(), save_dir)
   wandb.save(save_dir)
+
+  wandb.log({"models_dir": models_dir})
 
   cfg['uq_type'] = cfg.get('uq_type', None)
   if run_eval:# and (cfg['uq_type'] is not None):

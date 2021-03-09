@@ -158,18 +158,22 @@ class RigidBody:
     def dynamics(self, wgrad=False):
         return ConstrainedHamiltonianDynamics(self.hamiltonian, self.DPhi, wgrad=wgrad)
 
-    def integrate(self, z0, T, tol=1e-7,method="dopri5"):  # (x,v) -> (x,p) -> (x,v)
-        """ Integrate system from z0 to times in T (e.g. linspace(0,10,100))"""
+    def to_pos_momentum(self, z0):
         bs = z0.shape[0]
-        z0 = z0#.double()
         M = self.M.to(z0.device,z0.dtype)
-        Minv = self.Minv.to(z0.device,z0.dtype)
         xp = torch.stack(
             [z0[:, 0], M @ z0[:, 1]], dim=1
         ).reshape(bs, -1)
+        return xp
+
+    def integrate(self, z0, T, tol=1e-7,method="dopri5"):  # (x,v) -> (x,p) -> (x,v)
+        """ Integrate system from z0 to times in T (e.g. linspace(0,10,100))"""
+        bs = z0.shape[0]
+        xp = self.to_pos_momentum(z0)
         with torch.no_grad():
             xpt = odeint(self.dynamics(), xp, T.double(), rtol=tol, method=method)
         xps = xpt.permute(1, 0, 2).reshape(bs, len(T), *z0.shape[1:])
+        Minv = self.Minv.to(z0.device,z0.dtype)
         xvs = torch.stack([xps[:, :, 0], Minv @ xps[:, :, 1]], dim=2)
         return xvs.to(z0.device)
 

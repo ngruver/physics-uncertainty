@@ -142,6 +142,8 @@ def make_trainer(*,
     dof_ndim = dataset.body.D if angular else dataset.body.d
     model = network(dataset.body.body_graph, dof_ndim=dof_ndim,
                     angular_dims=dataset.body.angular_dims, **net_cfg)
+    if torch.cuda.is_available() and device is None:
+      device = "cuda"
     model = model.float().to(device)
 
     # Create train and Dev(Test) dataloaders and move elems to gpu

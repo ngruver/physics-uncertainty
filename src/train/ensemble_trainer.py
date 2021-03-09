@@ -6,7 +6,7 @@ import glob
 import wandb
 import subprocess
 import numpy as np
-import pathos.multiprocessing as mp
+# import pathos.multiprocessing as mp
 
 import torch
 import torch.nn as nn
@@ -49,16 +49,19 @@ class DeepEnsembleModel(nn.Module):
         self.model = model
         self.ensemble = ensemble
 
-    def forward(self, z, t, n_samples=10):
-        pred_zt = []
-        for state_dict in self.ensemble:
-            self.model.load_state_dict(state_dict)
-            self.model.eval()
+    def forward(self, z, t, n_samples=10, statewise=False):
+        if statewise:
             with torch.no_grad():
-                zt_pred = self.model.integrate(z, t, method='rk4')
-            pred_zt.append(zt_pred)
-        pred_zt = torch.stack(pred_zt, dim=0)
-        return pred_zt
+                pred_zt = self.model.integrate(z, t, method='rk4', models=self.ensemble)
+            return pred_zt
+        else:
+            pred_zt = []             
+            for model in self.ensemble:
+                with torch.no_grad():
+                    zt_pred = model.integrate(z, t, method='rk4')
+                pred_zt.append(zt_pred)
+            pred_zt = torch.stack(pred_zt, dim=0)
+            return pred_zt
 
 class DeepEnsembleTrainer():
 
@@ -94,12 +97,11 @@ class DeepEnsembleTrainer():
         self.ensemble_size = ensemble_size
         # self.sweep_id = wandb.sweep(config)
 
-        self.ensemble = nn.ModuleList([])
+        self._trainers = [make_det_trainer(**kwargs) for _ in range(self.ensemble_size)]
+        
+        self.ensemble = nn.ModuleList([copy.deepcopy(t.model) for t in self._trainers])
         self._trainer = make_det_trainer(**kwargs)
         self.model = DeepEnsembleModel(self._trainer.model, self.ensemble)
-
-        self._trainers = [make_det_trainer(**kwargs) for _ in range(self.ensemble_size)]
-        # self.ensemble = [trainer.model.state_dict() for trainer in self._trainers]
 
     def train(self, num_epochs):
         # _submit = lambda x: subprocess.call(["sbatch", "--wait", "configs/sweep.sh"])
@@ -121,27 +123,11 @@ class DeepEnsembleTrainer():
         #     model = {k.partition('model.')[2]: model[k] for k in model}
         #     self.ensemble.append(model)
 
+        self.ensemble = nn.ModuleList([])
         for idx, trainer in enumerate(self._trainers):
             trainer.train(num_epochs)
             self.ensemble.append(copy.deepcopy(trainer.model))
-
-class DeepEnsembleModel(nn.Module):
-    
-    def __init__(self, model, ensemble, **kwargs):
-        super().__init__(**kwargs)
-        self.model = model
-        self.ensemble = ensemble
-
-    def forward(self, z, t, n_samples=10):
-        pred_zt = []
-        for model in self.ensemble:
-            #self.model.load_state_dict(state_dict)
-            #self.model.eval()
-            with torch.no_grad():
-                zt_pred = model.integrate(z, t, method='rk4')
-            pred_zt.append(zt_pred)
-        pred_zt = torch.stack(pred_zt, dim=0)
-        return pred_zt
+        self.model.ensemble = self.ensemble
 
 class AleotoricWrapper(nn.Module):
 
@@ -192,6 +178,8 @@ def make_trainer(uq_type=None, **kwargs):
         kwargs.pop('num_bodies', None)
         return SWAGTrainer(**kwargs)
     elif uq_type == 'deep-ensemble':
+        return DeepEnsembleTrainer(**kwargs)
+    elif uq_type == 'deep-ensemble-step':
         return DeepEnsembleTrainer(**kwargs)
     elif uq_type == 'output-uncertainty':
         kwargs.pop('num_bodies', None)
